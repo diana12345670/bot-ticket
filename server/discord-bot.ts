@@ -197,30 +197,75 @@ class DiscordBot {
 
     const embed = new EmbedBuilder()
       .setColor(0x5865F2)
-      .setTitle("Configuração do Sistema de Tickets")
-      .setDescription("Selecione abaixo o que deseja configurar:")
+      .setTitle("Configuracao do Sistema de Tickets")
+      .setDescription("Como deseja configurar o sistema de tickets?")
       .addFields(
-        { name: "Cargo Staff", value: guildConfig.staffRoleId ? `<@&${guildConfig.staffRoleId}>` : "Não configurado", inline: true },
-        { name: "Categoria Tickets", value: guildConfig.ticketCategoryId ? `<#${guildConfig.ticketCategoryId}>` : "Não configurado", inline: true },
-        { name: "Canal de Logs", value: guildConfig.logChannelId ? `<#${guildConfig.logChannelId}>` : "Não configurado", inline: true },
-        { name: "Canal de Feedback", value: guildConfig.feedbackChannelId ? `<#${guildConfig.feedbackChannelId}>` : "Não configurado", inline: true },
-        { name: "IA Habilitada", value: guildConfig.aiEnabled ? "Sim" : "Não", inline: true },
+        { name: "Configuracao Atual", value: "\u200b", inline: false },
+        { name: "Cargo Staff", value: guildConfig.staffRoleId ? `<@&${guildConfig.staffRoleId}>` : "Nao configurado", inline: true },
+        { name: "Categoria Tickets", value: guildConfig.ticketCategoryId ? `<#${guildConfig.ticketCategoryId}>` : "Nao configurado", inline: true },
+        { name: "Canal de Logs", value: guildConfig.logChannelId ? `<#${guildConfig.logChannelId}>` : "Nao configurado", inline: true },
+        { name: "Canal de Feedback", value: guildConfig.feedbackChannelId ? `<#${guildConfig.feedbackChannelId}>` : "Nao configurado", inline: true },
+        { name: "IA Habilitada", value: guildConfig.aiEnabled ? "Sim" : "Nao", inline: true },
       );
 
-    const selectMenu = new StringSelectMenuBuilder()
-      .setCustomId("setup_menu")
-      .setPlaceholder("Selecione o que configurar")
-      .addOptions([
-        { label: "Cargo Staff", value: "staff_role", description: "Cargo que pode ver tickets", emoji: "👥" },
-        { label: "Categoria de Tickets", value: "ticket_category", description: "Categoria onde tickets são criados", emoji: "📁" },
-        { label: "Canal de Logs", value: "log_channel", description: "Canal para logs de tickets", emoji: "📝" },
-        { label: "Canal de Feedback", value: "feedback_channel", description: "Canal para feedbacks", emoji: "⭐" },
-        { label: "Mensagem de Boas-vindas", value: "welcome_message", description: "Mensagem ao abrir ticket", emoji: "👋" },
-      ]);
+    const websiteBtn = new ButtonBuilder()
+      .setCustomId("setup_website")
+      .setLabel("Configurar pelo Site")
+      .setEmoji("🌐")
+      .setStyle(ButtonStyle.Primary);
 
-    const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
+    const discordBtn = new ButtonBuilder()
+      .setCustomId("setup_discord")
+      .setLabel("Configurar pelo Discord")
+      .setEmoji("💬")
+      .setStyle(ButtonStyle.Secondary);
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(websiteBtn, discordBtn);
 
     await interaction.editReply({ embeds: [embed], components: [row] });
+  }
+
+  private async handleSetupChoiceButton(interaction: ButtonInteraction) {
+    const guild = interaction.guild;
+    if (!guild) return;
+
+    const guildConfig = await storage.getGuildConfig(guild.id);
+    if (!guildConfig) {
+      await interaction.reply({ content: "Erro: Servidor nao encontrado.", flags: 64 });
+      return;
+    }
+
+    if (interaction.customId === "setup_website") {
+      const dashboardUrl = process.env.RAILWAY_PUBLIC_DOMAIN 
+        ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}/settings`
+        : "https://ticketai.up.railway.app/settings";
+      
+      const embed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle("Configurar pelo Site")
+        .setDescription("Use o dashboard web para configurar o sistema de tickets com mais opcoes de personalizacao!")
+        .addFields(
+          { name: "Link do Dashboard", value: dashboardUrl, inline: false },
+          { name: "Chave do Servidor", value: `\`${guildConfig.serverKey}\``, inline: false },
+        )
+        .setFooter({ text: "Use a chave acima para desbloquear o dashboard" });
+
+      await interaction.reply({ embeds: [embed], flags: 64 });
+    } else if (interaction.customId === "setup_discord") {
+      const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId("setup_menu")
+        .setPlaceholder("Selecione o que configurar")
+        .addOptions([
+          { label: "Cargo Staff", value: "staff_role", description: "Cargo que pode ver tickets", emoji: "👥" },
+          { label: "Categoria de Tickets", value: "ticket_category", description: "Categoria onde tickets sao criados", emoji: "📁" },
+          { label: "Canal de Logs", value: "log_channel", description: "Canal para logs de tickets", emoji: "📝" },
+          { label: "Canal de Feedback", value: "feedback_channel", description: "Canal para feedbacks", emoji: "⭐" },
+          { label: "Mensagem de Boas-vindas", value: "welcome_message", description: "Mensagem ao abrir ticket", emoji: "👋" },
+        ]);
+
+      const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
+      await interaction.reply({ content: "Selecione o que deseja configurar:", components: [row], flags: 64 });
+    }
   }
 
   private async handleSelectMenu(interaction: StringSelectMenuInteraction) {
@@ -656,6 +701,8 @@ class DiscordBot {
             .setFooter({ text: "Esta mensagem só é visível para você" });
           await interaction.editReply({ embeds: [embed], components: [] });
         }
+      } else if (customId === "setup_website" || customId === "setup_discord") {
+        await this.handleSetupChoiceButton(interaction);
       }
     } catch (error: any) {
       discordLogger.error("Button interaction failed", { error: error.message });
@@ -1943,6 +1990,68 @@ class DiscordBot {
       users: this.client.users.cache.size,
       ping: this.client.ws.ping,
     };
+  }
+
+  async getGuildChannels(guildId: string) {
+    const guild = this.client.guilds.cache.get(guildId);
+    if (!guild) return null;
+
+    const channels = guild.channels.cache
+      .filter(ch => ch.type === ChannelType.GuildText)
+      .map(ch => ({
+        id: ch.id,
+        name: ch.name,
+        type: "text",
+      }));
+
+    return channels;
+  }
+
+  async getGuildCategories(guildId: string) {
+    const guild = this.client.guilds.cache.get(guildId);
+    if (!guild) return null;
+
+    const categories = guild.channels.cache
+      .filter(ch => ch.type === ChannelType.GuildCategory)
+      .map(ch => ({
+        id: ch.id,
+        name: ch.name,
+        type: "category",
+      }));
+
+    return categories;
+  }
+
+  async getGuildRoles(guildId: string) {
+    const guild = this.client.guilds.cache.get(guildId);
+    if (!guild) return null;
+
+    const roles = guild.roles.cache
+      .filter(role => !role.managed && role.name !== "@everyone")
+      .sort((a, b) => b.position - a.position)
+      .map(role => ({
+        id: role.id,
+        name: role.name,
+        color: role.hexColor,
+        position: role.position,
+      }));
+
+    return roles;
+  }
+
+  async getGuildEmojis(guildId: string) {
+    const guild = this.client.guilds.cache.get(guildId);
+    if (!guild) return null;
+
+    const emojis = guild.emojis.cache.map(emoji => ({
+      id: emoji.id,
+      name: emoji.name,
+      animated: emoji.animated,
+      url: emoji.url,
+      identifier: emoji.identifier,
+    }));
+
+    return emojis;
   }
 
   async start() {

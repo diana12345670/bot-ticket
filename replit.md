@@ -89,6 +89,14 @@ The dashboard uses a server-specific key for authentication:
 - `DELETE /api/dashboard/buttons/:id` - Delete button
 
 ## Recent Changes
+- **Dashboard UX Improvements** (Dec 18, 2025):
+  - `/setup-tickets` now offers choice between website or Discord-based configuration
+  - New API endpoints to fetch server data (channels, categories, roles, emojis)
+  - Settings page completely redesigned with automatic dropdowns (no manual ID input)
+  - Panel management section with create, edit, delete functionality
+  - Button customization with color picker and server emoji picker
+  - AI configuration tab for toggling and setting custom prompts
+  - Proper error handling with toast notifications for authorization issues
 - **Webhook Panel Publishing** (Dec 17, 2025):
   - `/painel-ticket` now sends panel messages via webhook with server avatar
   - Webhook named "ServidorWebhook" is automatically created/reused per channel
