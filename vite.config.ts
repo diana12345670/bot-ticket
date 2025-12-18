@@ -36,7 +36,5 @@ export default defineConfig({
       strict: true,
       deny: ["**/.*"],
     },
-    middlewareMode: true,
-    allowedHosts: true,
   },
 });

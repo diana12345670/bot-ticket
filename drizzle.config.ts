@@ -1,14 +1,14 @@
 import { defineConfig } from "drizzle-kit";
 
-// DATABASE_URL is optional - if not set, JSON storage will be used
-// drizzle-kit only needs it for migrations
-const databaseUrl = process.env.DATABASE_URL || "postgresql://dummy:dummy@localhost/dummy";
+if (!process.env.DATABASE_URL) {
+  throw new Error("DATABASE_URL, ensure the database is provisioned");
+}
 
 export default defineConfig({
   out: "./migrations",
   schema: "./shared/schema.ts",
   dialect: "postgresql",
   dbCredentials: {
-    url: databaseUrl,
+    url: process.env.DATABASE_URL,
   },
 });
