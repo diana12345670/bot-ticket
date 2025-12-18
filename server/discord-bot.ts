@@ -1527,6 +1527,7 @@ class DiscordBot {
     const panelId = interaction.customId.replace("panel_edit_buttons_", "");
     
     try {
+      await interaction.deferUpdate();
       const buttons = await storage.getPanelButtons(panelId);
 
       const embed = new EmbedBuilder()
@@ -1559,9 +1560,7 @@ class DiscordBot {
           .setStyle(ButtonStyle.Secondary)
       );
 
-      await interaction.update({ embeds: [embed], components: [row] }).catch(async () => {
-        await interaction.reply({ embeds: [embed], components: [row], ephemeral: true }).catch(() => {});
-      });
+      await interaction.editReply({ embeds: [embed], components: [row] });
     } catch (error: any) {
       discordLogger.error("Error managing panel buttons", { error: error.message });
       await this.safeReply(interaction, "Erro ao gerenciar botões.");
@@ -1776,8 +1775,9 @@ class DiscordBot {
 
   private async handlePanelDelete(interaction: ButtonInteraction) {
     const panelId = interaction.customId.replace("panel_delete_", "");
+    await interaction.deferUpdate();
     await storage.deletePanel(panelId);
-    await interaction.update({
+    await interaction.editReply({
       content: "Configuração do painel cancelada.",
       embeds: [],
       components: [],
