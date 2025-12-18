@@ -56,23 +56,32 @@ app.use((req, res, next) => {
 (async () => {
   serverLogger.info("Application startup initiated");
 
-  // Initialize database before starting the bot
+  // Initialize database before starting the bot - CRITICAL
+  let dbReady = false;
   try {
     serverLogger.info("Testing database connection...");
     const dbConnected = await testDatabaseConnection();
     
     if (dbConnected) {
       serverLogger.info("Initializing database schema...");
-      const dbInitialized = await initializeDatabase();
+      dbReady = await initializeDatabase();
       
-      if (!dbInitialized) {
-        dbLogger.warn("Database initialization had issues, continuing with caution");
+      if (!dbReady) {
+        dbLogger.error("CRITICAL: Database initialization FAILED - tables not created!");
+        serverLogger.error("Database initialization failed - cannot start bot safely");
+        process.exit(1); // Exit if DB not ready
+      } else {
+        serverLogger.success("Database initialization successful - all tables ready");
       }
     } else {
-      dbLogger.warn("Database connection failed, bot will use fallback storage");
+      dbLogger.error("CRITICAL: Database connection failed - cannot proceed!");
+      serverLogger.error("Database connection failed - cannot start bot");
+      process.exit(1); // Exit if can't connect
     }
   } catch (error: any) {
     dbLogger.error("Database initialization error", { error: error.message });
+    serverLogger.error("Fatal database initialization error");
+    process.exit(1); // Exit on any error
   }
 
   try {

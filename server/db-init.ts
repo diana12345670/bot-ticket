@@ -37,6 +37,21 @@ export async function initializeDatabase(): Promise<boolean> {
 
     dbLogger.info(`Creating missing database tables: ${missingTables.join(', ')}`);
 
+    // Drop and recreate ENUMs if needed (ENUMs can't be modified, only dropped)
+    try {
+      await client.query(`DROP TYPE IF EXISTS ticket_status CASCADE;`);
+      dbLogger.debug("Dropped existing ticket_status type");
+    } catch (e) {
+      // Ignore if type doesn't exist
+    }
+
+    try {
+      await client.query(`DROP TYPE IF EXISTS button_style CASCADE;`);
+      dbLogger.debug("Dropped existing button_style type");
+    } catch (e) {
+      // Ignore if type doesn't exist
+    }
+
     // Create all required tables
     await client.query(`
       CREATE TABLE IF NOT EXISTS guild_configs (
@@ -62,9 +77,18 @@ export async function initializeDatabase(): Promise<boolean> {
       );
     `);
 
-    await client.query(`
-      CREATE TYPE ticket_status AS ENUM ('open', 'waiting', 'closed', 'archived');
-    `);
+    // Create ticket_status ENUM - now safe since we dropped it above
+    try {
+      await client.query(`
+        CREATE TYPE ticket_status AS ENUM ('open', 'waiting', 'closed', 'archived');
+      `);
+      dbLogger.debug("Created ticket_status enum");
+    } catch (error: any) {
+      if (error.code !== "42710") { // 42710 = type already exists
+        throw error;
+      }
+      dbLogger.debug("ticket_status enum already exists");
+    }
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS tickets (
@@ -101,9 +125,18 @@ export async function initializeDatabase(): Promise<boolean> {
       );
     `);
 
-    await client.query(`
-      CREATE TYPE button_style AS ENUM ('primary', 'secondary', 'success', 'danger');
-    `);
+    // Create button_style ENUM - now safe since we dropped it above
+    try {
+      await client.query(`
+        CREATE TYPE button_style AS ENUM ('primary', 'secondary', 'success', 'danger');
+      `);
+      dbLogger.debug("Created button_style enum");
+    } catch (error: any) {
+      if (error.code !== "42710") { // 42710 = type already exists
+        throw error;
+      }
+      dbLogger.debug("button_style enum already exists");
+    }
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS ticket_panels (
@@ -160,7 +193,7 @@ export async function initializeDatabase(): Promise<boolean> {
 
     dbLogger.success("Database tables created successfully");
     
-    // Verify all tables exist after creation
+    // CRITICAL: Verify all tables exist after creation (must be 100%)
     const verifyQuery = `
       SELECT table_name FROM information_schema.tables 
       WHERE table_schema = 'public' AND table_name = ANY($1)
@@ -169,11 +202,18 @@ export async function initializeDatabase(): Promise<boolean> {
     const createdCount = verifyResult.rows.length;
     
     if (createdCount === requiredTables.length) {
-      dbLogger.success(`Database initialization complete: ${createdCount} tables verified`);
+      dbLogger.success(`Database initialization complete: ${createdCount}/${requiredTables.length} tables verified ✓`);
       return true;
     } else {
-      dbLogger.warn(`Database verification: ${createdCount}/${requiredTables.length} tables found`);
-      return createdCount > 0;
+      const missingAfterCreate = requiredTables.filter(
+        t => !verifyResult.rows.some(r => r.table_name === t)
+      );
+      dbLogger.error(`Database verification FAILED - Missing tables: ${missingAfterCreate.join(', ')}`, {
+        found: createdCount,
+        required: requiredTables.length,
+        missing: missingAfterCreate,
+      });
+      return false; // CRITICAL: Return false if not all tables exist
     }
   } catch (error: any) {
     // Ignore errors if tables already exist
