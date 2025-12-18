@@ -392,7 +392,7 @@ class DiscordBot {
     const guild = interaction.guild;
     if (!guild) return;
 
-    await interaction.reply({ ephemeral: true, content: "⏳ Processando..." });
+    await interaction.deferReply({ ephemeral: true });
 
     const channel = interaction.options.getChannel("canal");
     if (!channel) {
@@ -400,145 +400,87 @@ class DiscordBot {
       return;
     }
 
-    const chooseEmbed = new EmbedBuilder()
-      .setColor(0x5865F2)
-      .setTitle("Escolha o Método de Configuração")
-      .setDescription("Como você deseja configurar seu painel de tickets?")
-      .addFields(
-        { name: "🌐 Website", value: "Configure seu painel com uma interface visual moderna no site.", inline: false },
-        { name: "🎮 Discord", value: "Configure seu painel diretamente no Discord usando botões.", inline: false }
-      )
-      .setFooter({ text: "Escolha uma das opções abaixo" });
+    const panel = await storage.createPanel({
+      guildId: guild.id,
+      channelId: channel.id,
+      createdBy: interaction.user.id,
+      title: "Sistema de Tickets",
+      description: "Clique no botão abaixo para abrir um ticket e entrar em contato com nossa equipe.",
+      embedColor: "#5865F2",
+      isConfigured: false,
+    });
 
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    await storage.createPanelButton({
+      panelId: panel.id,
+      label: "Abrir Ticket",
+      emoji: "📩",
+      style: "primary",
+      order: 0,
+    });
+
+    const configEmbed = new EmbedBuilder()
+      .setColor(0x5865F2)
+      .setTitle("Configuração do Painel de Tickets")
+      .setDescription("Configure seu painel de tickets usando os botões abaixo. Quando terminar, clique em **Publicar Painel**.")
+      .addFields(
+        { name: "Canal", value: `<#${channel.id}>`, inline: true },
+        { name: "Título", value: panel.title || "Sistema de Tickets", inline: true },
+        { name: "Cor", value: panel.embedColor || "#5865F2", inline: true },
+        { name: "Categoria de Tickets", value: panel.categoryId ? `<#${panel.categoryId}>` : "Não configurada", inline: true },
+        { name: "Botões", value: "1 botão configurado", inline: true },
+      )
+      .setFooter({ text: `ID do Painel: ${panel.id}` });
+
+    const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
-        .setCustomId(`panel_config_website_${channel.id}`)
-        .setLabel("Configurar no Website")
-        .setEmoji("🌐")
-        .setStyle(ButtonStyle.Primary),
+        .setCustomId(`panel_edit_title_${panel.id}`)
+        .setLabel("Editar Título/Descrição")
+        .setEmoji("✏️")
+        .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
-        .setCustomId(`panel_config_discord_${channel.id}`)
-        .setLabel("Configurar no Discord")
-        .setEmoji("🎮")
-        .setStyle(ButtonStyle.Secondary)
+        .setCustomId(`panel_edit_color_${panel.id}`)
+        .setLabel("Cor do Embed")
+        .setEmoji("🎨")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`panel_edit_category_${panel.id}`)
+        .setLabel("Categoria")
+        .setEmoji("📁")
+        .setStyle(ButtonStyle.Secondary),
     );
 
-    await interaction.editReply({ embeds: [chooseEmbed], components: [row] });
-  }
+    const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`panel_edit_buttons_${panel.id}`)
+        .setLabel("Gerenciar Botões")
+        .setEmoji("🔘")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`panel_edit_welcome_${panel.id}`)
+        .setLabel("Mensagem de Boas-vindas")
+        .setEmoji("👋")
+        .setStyle(ButtonStyle.Secondary),
+    );
 
-  private async handlePanelConfigChoice(interaction: ButtonInteraction) {
-    const customId = interaction.customId;
-    
-    try {
-      if (customId.startsWith("panel_config_website_")) {
-        const channelId = customId.replace("panel_config_website_", "");
-        const dashboardUrl = "https://ticketai.up.railway.app/";
-        
-        const embed = new EmbedBuilder()
-          .setColor(0x57F287)
-          .setTitle("Redirecionando para o Website")
-          .setDescription(`[Clique aqui para acessar o painel de configuração](${dashboardUrl})`)
-          .addFields(
-            { name: "Canal Selecionado", value: `<#${channelId}>`, inline: true }
-          );
+    const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`panel_publish_${panel.id}`)
+        .setLabel("Publicar Painel")
+        .setEmoji("✅")
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`panel_preview_${panel.id}`)
+        .setLabel("Visualizar")
+        .setEmoji("👁️")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`panel_delete_${panel.id}`)
+        .setLabel("Cancelar")
+        .setEmoji("🗑️")
+        .setStyle(ButtonStyle.Danger),
+    );
 
-        await interaction.update({ embeds: [embed], components: [] });
-      } else if (customId.startsWith("panel_config_discord_")) {
-        const channelId = customId.replace("panel_config_discord_", "");
-        const guild = interaction.guild;
-        if (!guild) return;
-
-        const channel = await guild.channels.fetch(channelId).catch(() => null);
-        if (!channel) {
-          await interaction.update({ content: "Canal não encontrado.", components: [] });
-          return;
-        }
-
-        const panel = await storage.createPanel({
-          guildId: guild.id,
-          channelId: channelId,
-          createdBy: interaction.user.id,
-          title: "Sistema de Tickets",
-          description: "Clique no botão abaixo para abrir um ticket e entrar em contato com nossa equipe.",
-          embedColor: "#5865F2",
-          isConfigured: false,
-        });
-
-        await storage.createPanelButton({
-          panelId: panel.id,
-          label: "Abrir Ticket",
-          emoji: "📩",
-          style: "primary",
-          order: 0,
-        });
-
-        const configEmbed = new EmbedBuilder()
-          .setColor(0x5865F2)
-          .setTitle("Configuração do Painel de Tickets")
-          .setDescription("Configure seu painel de tickets usando os botões abaixo. Quando terminar, clique em **Publicar Painel**.")
-          .addFields(
-            { name: "Canal", value: `<#${channel.id}>`, inline: true },
-            { name: "Título", value: panel.title || "Sistema de Tickets", inline: true },
-            { name: "Cor", value: panel.embedColor || "#5865F2", inline: true },
-            { name: "Categoria de Tickets", value: panel.categoryId ? `<#${panel.categoryId}>` : "Não configurada", inline: true },
-            { name: "Botões", value: "1 botão configurado", inline: true },
-          )
-          .setFooter({ text: `ID do Painel: ${panel.id}` });
-
-        const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`panel_edit_title_${panel.id}`)
-            .setLabel("Editar Título/Descrição")
-            .setEmoji("✏️")
-            .setStyle(ButtonStyle.Secondary),
-          new ButtonBuilder()
-            .setCustomId(`panel_edit_color_${panel.id}`)
-            .setLabel("Cor do Embed")
-            .setEmoji("🎨")
-            .setStyle(ButtonStyle.Secondary),
-          new ButtonBuilder()
-            .setCustomId(`panel_edit_category_${panel.id}`)
-            .setLabel("Categoria")
-            .setEmoji("📁")
-            .setStyle(ButtonStyle.Secondary),
-        );
-
-        const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`panel_edit_buttons_${panel.id}`)
-            .setLabel("Gerenciar Botões")
-            .setEmoji("🔘")
-            .setStyle(ButtonStyle.Secondary),
-          new ButtonBuilder()
-            .setCustomId(`panel_edit_welcome_${panel.id}`)
-            .setLabel("Mensagem de Boas-vindas")
-            .setEmoji("👋")
-            .setStyle(ButtonStyle.Secondary),
-        );
-
-        const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`panel_publish_${panel.id}`)
-            .setLabel("Publicar Painel")
-            .setEmoji("✅")
-            .setStyle(ButtonStyle.Success),
-          new ButtonBuilder()
-            .setCustomId(`panel_preview_${panel.id}`)
-            .setLabel("Visualizar")
-            .setEmoji("👁️")
-            .setStyle(ButtonStyle.Primary),
-          new ButtonBuilder()
-            .setCustomId(`panel_delete_${panel.id}`)
-            .setLabel("Cancelar")
-            .setEmoji("🗑️")
-            .setStyle(ButtonStyle.Danger),
-        );
-
-        await interaction.update({ embeds: [configEmbed], components: [row1, row2, row3] });
-      }
-    } catch (error: any) {
-      discordLogger.error("Panel config choice error", { error: error.message });
-    }
+    await interaction.editReply({ embeds: [configEmbed], components: [row1, row2, row3] });
   }
 
   private async handleAICommand(interaction: ChatInputCommandInteraction) {
@@ -683,8 +625,6 @@ class DiscordBot {
         await this.archiveTicket(interaction);
       } else if (customId.startsWith("feedback_")) {
         await this.handleFeedbackRating(interaction);
-      } else if (customId.startsWith("panel_config_website_") || customId.startsWith("panel_config_discord_")) {
-        await this.handlePanelConfigChoice(interaction);
       } else if (customId.startsWith("panel_edit_title_")) {
         await this.handlePanelEditTitle(interaction);
       } else if (customId.startsWith("panel_edit_color_")) {
