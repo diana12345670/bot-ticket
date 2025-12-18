@@ -1691,11 +1691,12 @@ class DiscordBot {
   }
 
   private async handlePanelBackConfig(interaction: ButtonInteraction) {
+    await interaction.deferUpdate();
     const panelId = interaction.customId.replace("panel_back_config_", "");
     const panel = await storage.getPanel(panelId);
     
     if (!panel) {
-      await interaction.reply({ content: "Painel não encontrado.", ephemeral: true });
+      await interaction.followUp({ content: "Painel não encontrado.", ephemeral: true });
       return;
     }
 
