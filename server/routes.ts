@@ -344,23 +344,13 @@ export async function registerRoutes(
     try {
       const { discordBot } = await import("./discord-bot");
       const status = discordBot.getStatus();
-      res.json({
-        status: "ok",
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-        bot: status,
-      });
+      res.json(status);
     } catch (error) {
       res.json({
-        status: "ok",
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-        bot: {
-          online: false,
-          guilds: 0,
-          users: 0,
-          ping: 0,
-        }
+        online: false,
+        guilds: 0,
+        users: 0,
+        ping: 0,
       });
     }
   });
