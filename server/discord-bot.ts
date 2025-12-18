@@ -246,10 +246,25 @@ class DiscordBot {
           .setMinValues(1)
           .setMaxValues(1);
         
+        const allRoles = await guild.roles.fetch();
+        const rolesList = allRoles
+          .filter(r => !r.managed && r.id !== guild.id)
+          .map(r => `@${r.name} (${r.id})`)
+          .slice(0, 20)
+          .join("\n") || "Nenhum cargo encontrado";
+        
         const roleRow = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
+        const roleButtonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId("setup_staff_role_id")
+            .setLabel("Digitar ID do Cargo")
+            .setEmoji("🔢")
+            .setStyle(ButtonStyle.Secondary)
+        );
+        
         await interaction.reply({
-          content: "👥 Selecione o cargo que poderá ver e responder os tickets:",
-          components: [roleRow],
+          content: `👥 Selecione o cargo ou digite seu ID:\n\n**Cargos disponíveis (amostra):**\n${rolesList}`,
+          components: [roleRow, roleButtonRow],
           ephemeral: true,
         });
         break;
@@ -257,21 +272,29 @@ class DiscordBot {
       case "ticket_category":
         const categorySelect = new ChannelSelectMenuBuilder()
           .setCustomId("setup_category_select")
-          .setPlaceholder("Selecione a categoria (mostra todas)")
+          .setPlaceholder("Selecione a categoria")
           .setChannelTypes(ChannelType.GuildCategory)
           .setMinValues(1)
           .setMaxValues(1);
         
-        const categoryRow = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(categorySelect);
         const allCategories = await guild.channels.fetch();
         const categoriesList = allCategories
           .filter(ch => ch?.type === ChannelType.GuildCategory)
           .map(ch => `${ch?.name || "desconhecida"} (${ch?.id || "ID inválido"})`)
           .join("\n") || "Nenhuma categoria encontrada";
         
+        const categoryRow = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(categorySelect);
+        const categoryButtonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId("setup_category_id")
+            .setLabel("Digitar ID da Categoria")
+            .setEmoji("🔢")
+            .setStyle(ButtonStyle.Secondary)
+        );
+        
         await interaction.reply({
-          content: `📁 Selecione a categoria no menu abaixo:\n\n**Categorias disponíveis:**\n${categoriesList}`,
-          components: [categoryRow],
+          content: `📁 Selecione a categoria ou digite seu ID:\n\n**Categorias disponíveis:**\n${categoriesList}`,
+          components: [categoryRow, categoryButtonRow],
           ephemeral: true,
         });
         break;
@@ -279,21 +302,29 @@ class DiscordBot {
       case "log_channel":
         const logSelect = new ChannelSelectMenuBuilder()
           .setCustomId("setup_log_channel_select")
-          .setPlaceholder("Selecione o canal de logs (mostra todos)")
+          .setPlaceholder("Selecione o canal de logs")
           .setChannelTypes(ChannelType.GuildText)
           .setMinValues(1)
           .setMaxValues(1);
         
-        const logRow = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(logSelect);
         const allChannels = await guild.channels.fetch();
         const channelsList = allChannels
           .filter(ch => ch?.type === ChannelType.GuildText)
           .map(ch => `#${ch?.name || "desconhecido"} (${ch?.id || "ID inválido"})`)
           .join("\n") || "Nenhum canal de texto encontrado";
         
+        const logRow = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(logSelect);
+        const logButtonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId("setup_log_channel_id")
+            .setLabel("Digitar ID do Canal")
+            .setEmoji("🔢")
+            .setStyle(ButtonStyle.Secondary)
+        );
+        
         await interaction.reply({
-          content: `📝 Selecione o canal de logs no menu abaixo:\n\n**Canais disponíveis:**\n${channelsList}`,
-          components: [logRow],
+          content: `📝 Selecione o canal de logs ou digite seu ID:\n\n**Canais disponíveis:**\n${channelsList}`,
+          components: [logRow, logButtonRow],
           ephemeral: true,
         });
         break;
@@ -301,21 +332,29 @@ class DiscordBot {
       case "feedback_channel":
         const feedbackSelect = new ChannelSelectMenuBuilder()
           .setCustomId("setup_feedback_channel_select")
-          .setPlaceholder("Selecione o canal de feedback (mostra todos)")
+          .setPlaceholder("Selecione o canal de feedback")
           .setChannelTypes(ChannelType.GuildText)
           .setMinValues(1)
           .setMaxValues(1);
         
-        const feedbackRow = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(feedbackSelect);
         const allFeedbackChannels = await guild.channels.fetch();
         const feedbackChannelsList = allFeedbackChannels
           .filter(ch => ch?.type === ChannelType.GuildText)
           .map(ch => `#${ch?.name || "desconhecido"} (${ch?.id || "ID inválido"})`)
           .join("\n") || "Nenhum canal de texto encontrado";
         
+        const feedbackRow = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(feedbackSelect);
+        const feedbackButtonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId("setup_feedback_channel_id")
+            .setLabel("Digitar ID do Canal")
+            .setEmoji("🔢")
+            .setStyle(ButtonStyle.Secondary)
+        );
+        
         await interaction.reply({
-          content: `⭐ Selecione o canal de feedback no menu abaixo:\n\n**Canais disponíveis:**\n${feedbackChannelsList}`,
-          components: [feedbackRow],
+          content: `⭐ Selecione o canal de feedback ou digite seu ID:\n\n**Canais disponíveis:**\n${feedbackChannelsList}`,
+          components: [feedbackRow, feedbackButtonRow],
           ephemeral: true,
         });
         break;
@@ -658,6 +697,14 @@ class DiscordBot {
         await this.handlePanelAddButton(interaction);
       } else if (customId.startsWith("panel_back_config_")) {
         await this.handlePanelBackToConfig(interaction);
+      } else if (customId === "setup_staff_role_id") {
+        await this.handleSetupRoleIdModal(interaction);
+      } else if (customId === "setup_category_id") {
+        await this.handleSetupCategoryIdModal(interaction);
+      } else if (customId === "setup_log_channel_id") {
+        await this.handleSetupLogChannelIdModal(interaction);
+      } else if (customId === "setup_feedback_channel_id") {
+        await this.handleSetupFeedbackChannelIdModal(interaction);
       } else if (customId === "confirm_reset_tickets" && guild) {
         await interaction.deferUpdate();
         const count = await storage.resetTickets(guild.id);
@@ -710,6 +757,70 @@ class DiscordBot {
         const welcomeMessage = interaction.fields.getTextInputValue("message");
         await storage.updateGuildConfig(guild.id, { welcomeMessage: welcomeMessage });
         await interaction.reply({ content: "Mensagem de boas-vindas configurada!", ephemeral: true });
+        return;
+      }
+
+      if (interaction.customId === "modal_setup_staff_role_id") {
+        const roleId = interaction.fields.getTextInputValue("role_id");
+        try {
+          const role = await guild.roles.fetch(roleId);
+          if (!role) {
+            await interaction.reply({ content: "❌ Cargo não encontrado com esse ID.", ephemeral: true });
+            return;
+          }
+          await storage.updateGuildConfig(guild.id, { staffRoleId: roleId });
+          await interaction.reply({ content: `✅ Cargo Staff configurado: <@&${roleId}>`, ephemeral: true });
+        } catch {
+          await interaction.reply({ content: "❌ ID de cargo inválido.", ephemeral: true });
+        }
+        return;
+      }
+
+      if (interaction.customId === "modal_setup_category_id") {
+        const categoryId = interaction.fields.getTextInputValue("category_id");
+        try {
+          const category = await guild.channels.fetch(categoryId);
+          if (!category || category.type !== ChannelType.GuildCategory) {
+            await interaction.reply({ content: "❌ Categoria não encontrada com esse ID.", ephemeral: true });
+            return;
+          }
+          await storage.updateGuildConfig(guild.id, { ticketCategoryId: categoryId });
+          await interaction.reply({ content: `✅ Categoria de tickets configurada: <#${categoryId}>`, ephemeral: true });
+        } catch {
+          await interaction.reply({ content: "❌ ID de categoria inválido.", ephemeral: true });
+        }
+        return;
+      }
+
+      if (interaction.customId === "modal_setup_log_channel_id") {
+        const channelId = interaction.fields.getTextInputValue("channel_id");
+        try {
+          const channel = await guild.channels.fetch(channelId);
+          if (!channel || channel.type !== ChannelType.GuildText) {
+            await interaction.reply({ content: "❌ Canal não encontrado com esse ID.", ephemeral: true });
+            return;
+          }
+          await storage.updateGuildConfig(guild.id, { logChannelId: channelId });
+          await interaction.reply({ content: `✅ Canal de logs configurado: <#${channelId}>`, ephemeral: true });
+        } catch {
+          await interaction.reply({ content: "❌ ID de canal inválido.", ephemeral: true });
+        }
+        return;
+      }
+
+      if (interaction.customId === "modal_setup_feedback_channel_id") {
+        const channelId = interaction.fields.getTextInputValue("channel_id");
+        try {
+          const channel = await guild.channels.fetch(channelId);
+          if (!channel || channel.type !== ChannelType.GuildText) {
+            await interaction.reply({ content: "❌ Canal não encontrado com esse ID.", ephemeral: true });
+            return;
+          }
+          await storage.updateGuildConfig(guild.id, { feedbackChannelId: channelId });
+          await interaction.reply({ content: `✅ Canal de feedback configurado: <#${channelId}>`, ephemeral: true });
+        } catch {
+          await interaction.reply({ content: "❌ ID de canal inválido.", ephemeral: true });
+        }
         return;
       }
 
@@ -1503,6 +1614,74 @@ class DiscordBot {
     );
 
     await interaction.update({ embeds: [embed], components: [row] });
+  }
+
+  private async handleSetupRoleIdModal(interaction: ButtonInteraction) {
+    const modal = new ModalBuilder()
+      .setCustomId("modal_setup_staff_role_id")
+      .setTitle("Digitar ID do Cargo")
+      .addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId("role_id")
+            .setLabel("ID do Cargo")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+            .setPlaceholder("Cole o ID do cargo aqui")
+        )
+      );
+    await interaction.showModal(modal);
+  }
+
+  private async handleSetupCategoryIdModal(interaction: ButtonInteraction) {
+    const modal = new ModalBuilder()
+      .setCustomId("modal_setup_category_id")
+      .setTitle("Digitar ID da Categoria")
+      .addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId("category_id")
+            .setLabel("ID da Categoria")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+            .setPlaceholder("Cole o ID da categoria aqui")
+        )
+      );
+    await interaction.showModal(modal);
+  }
+
+  private async handleSetupLogChannelIdModal(interaction: ButtonInteraction) {
+    const modal = new ModalBuilder()
+      .setCustomId("modal_setup_log_channel_id")
+      .setTitle("Digitar ID do Canal de Logs")
+      .addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId("channel_id")
+            .setLabel("ID do Canal")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+            .setPlaceholder("Cole o ID do canal aqui")
+        )
+      );
+    await interaction.showModal(modal);
+  }
+
+  private async handleSetupFeedbackChannelIdModal(interaction: ButtonInteraction) {
+    const modal = new ModalBuilder()
+      .setCustomId("modal_setup_feedback_channel_id")
+      .setTitle("Digitar ID do Canal de Feedback")
+      .addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId("channel_id")
+            .setLabel("ID do Canal")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+            .setPlaceholder("Cole o ID do canal aqui")
+        )
+      );
+    await interaction.showModal(modal);
   }
 
   private async handlePanelBackToConfig(interaction: ButtonInteraction) {

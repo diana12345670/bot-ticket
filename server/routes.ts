@@ -339,11 +339,6 @@ export async function registerRoutes(
     }
   });
 
-  // Root health check endpoint - redirect to dashboard
-  app.get("/", (req, res) => {
-    res.redirect("/");
-  });
-
   // Bot status endpoint
   app.get("/api/bot/status", async (req, res) => {
     try {
