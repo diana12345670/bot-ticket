@@ -25,6 +25,7 @@ import {
   ChannelSelectMenuBuilder,
   RoleSelectMenuInteraction,
   ChannelSelectMenuInteraction,
+  MessageFlags,
 } from "discord.js";
 import { storage } from "./storage";
 import OpenAI from "openai";
@@ -171,7 +172,7 @@ class DiscordBot {
       const reply = interaction.replied || interaction.deferred
         ? interaction.followUp.bind(interaction)
         : interaction.reply.bind(interaction);
-      await reply({ content: "Ocorreu um erro ao executar o comando.", ephemeral: true });
+      await reply({ content: "Ocorreu um erro ao executar o comando.", flags: MessageFlags.Ephemeral });
     }
   }
 
@@ -179,7 +180,7 @@ class DiscordBot {
     const guild = interaction.guild;
     if (!guild) return;
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     let guildConfig = await storage.getGuildConfig(guild.id);
     if (!guildConfig) {
@@ -237,7 +238,7 @@ class DiscordBot {
         await interaction.reply({
           content: "👥 Selecione o cargo que poderá ver e responder os tickets:",
           components: [roleRow],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         break;
 
@@ -258,7 +259,7 @@ class DiscordBot {
         await interaction.reply({
           content: "📁 Selecione a categoria onde os tickets serão criados (ou insira o ID manualmente):",
           components: [categoryRow, categoryBtnRow],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         break;
 
@@ -279,7 +280,7 @@ class DiscordBot {
         await interaction.reply({
           content: "📝 Selecione o canal onde os logs de tickets serão enviados (ou insira o ID manualmente):",
           components: [logRow, logBtnRow],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         break;
 
@@ -300,7 +301,7 @@ class DiscordBot {
         await interaction.reply({
           content: "⭐ Selecione o canal onde os feedbacks serão enviados (ou insira o ID manualmente):",
           components: [feedbackRow, feedbackBtnRow],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         break;
 
@@ -340,7 +341,7 @@ class DiscordBot {
     } catch (error: any) {
       discordLogger.error("Role select error", { error: error.message });
       if (!interaction.replied) {
-        await interaction.reply({ content: "Erro ao configurar cargo.", ephemeral: true });
+        await interaction.reply({ content: "Erro ao configurar cargo.", flags: MessageFlags.Ephemeral });
       }
     }
   }
@@ -380,7 +381,7 @@ class DiscordBot {
     } catch (error: any) {
       discordLogger.error("Channel select error", { error: error.message });
       if (!interaction.replied) {
-        await interaction.reply({ content: "Erro ao configurar canal.", ephemeral: true });
+        await interaction.reply({ content: "Erro ao configurar canal.", flags: MessageFlags.Ephemeral });
       }
     }
   }
@@ -389,7 +390,7 @@ class DiscordBot {
     const guild = interaction.guild;
     if (!guild) return;
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const channel = interaction.options.getChannel("canal");
     if (!channel) {
@@ -484,7 +485,7 @@ class DiscordBot {
     const guild = interaction.guild;
     if (!guild) return;
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const ativar = interaction.options.getBoolean("ativar", true);
     const prompt = interaction.options.getString("prompt");
@@ -536,14 +537,14 @@ class DiscordBot {
         .setStyle(ButtonStyle.Secondary)
     );
 
-    await interaction.reply({ embeds: [confirmEmbed], components: [row], ephemeral: true });
+    await interaction.reply({ embeds: [confirmEmbed], components: [row], flags: MessageFlags.Ephemeral });
   }
 
   private async handleKeyCommand(interaction: ChatInputCommandInteraction) {
     const guild = interaction.guild;
     if (!guild) return;
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     let guildConfig = await storage.getGuildConfig(guild.id);
     if (!guildConfig) {
@@ -677,11 +678,19 @@ class DiscordBot {
       }
     } catch (error: any) {
       discordLogger.error("Button interaction failed", { error: error.message });
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({
-          content: "Ocorreu um erro ao processar sua ação.",
-          ephemeral: true,
-        });
+      try {
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({
+            content: "Ocorreu um erro ao processar sua ação.",
+            flags: MessageFlags.Ephemeral,
+          });
+        } else if (interaction.deferred && !interaction.replied) {
+          await interaction.editReply({
+            content: "Ocorreu um erro ao processar sua ação.",
+          });
+        }
+      } catch {
+        // Interaction already handled, ignore error
       }
     }
   }
@@ -699,7 +708,7 @@ class DiscordBot {
       if (interaction.customId === "setup_welcome") {
         const welcomeMessage = interaction.fields.getTextInputValue("message");
         await storage.updateGuildConfig(guild.id, { welcomeMessage: welcomeMessage });
-        await interaction.reply({ content: "Mensagem de boas-vindas configurada!", ephemeral: true });
+        await interaction.reply({ content: "Mensagem de boas-vindas configurada!", flags: MessageFlags.Ephemeral });
         return;
       }
 
@@ -708,13 +717,13 @@ class DiscordBot {
         const title = interaction.fields.getTextInputValue("title");
         const description = interaction.fields.getTextInputValue("description");
         await storage.updatePanel(panelId, { title, description });
-        await interaction.reply({ content: "Título e descrição atualizados!", ephemeral: true });
+        await interaction.reply({ content: "Título e descrição atualizados!", flags: MessageFlags.Ephemeral });
       } else if (interaction.customId.startsWith("modal_panel_color_")) {
         const panelId = interaction.customId.replace("modal_panel_color_", "");
         let color = interaction.fields.getTextInputValue("color");
         if (!color.startsWith("#")) color = "#" + color;
         await storage.updatePanel(panelId, { embedColor: color });
-        await interaction.reply({ content: `Cor atualizada para ${color}!`, ephemeral: true });
+        await interaction.reply({ content: `Cor atualizada para ${color}!`, flags: MessageFlags.Ephemeral });
       } else if (interaction.customId.startsWith("modal_panel_category_")) {
         const panelId = interaction.customId.replace("modal_panel_category_", "");
         const categoryId = interaction.fields.getTextInputValue("category_id");
@@ -722,19 +731,19 @@ class DiscordBot {
         try {
           const category = await guild.channels.fetch(categoryId);
           if (!category || category.type !== ChannelType.GuildCategory) {
-            await interaction.reply({ content: "ID inválido. Certifique-se de que é uma categoria.", ephemeral: true });
+            await interaction.reply({ content: "ID inválido. Certifique-se de que é uma categoria.", flags: MessageFlags.Ephemeral });
             return;
           }
           await storage.updatePanel(panelId, { categoryId });
-          await interaction.reply({ content: `Categoria configurada: <#${categoryId}>`, ephemeral: true });
+          await interaction.reply({ content: `Categoria configurada: <#${categoryId}>`, flags: MessageFlags.Ephemeral });
         } catch {
-          await interaction.reply({ content: "Categoria não encontrada.", ephemeral: true });
+          await interaction.reply({ content: "Categoria não encontrada.", flags: MessageFlags.Ephemeral });
         }
       } else if (interaction.customId.startsWith("modal_panel_welcome_")) {
         const panelId = interaction.customId.replace("modal_panel_welcome_", "");
         const welcome = interaction.fields.getTextInputValue("welcome");
         await storage.updatePanel(panelId, { welcomeMessage: welcome });
-        await interaction.reply({ content: "Mensagem de boas-vindas atualizada!", ephemeral: true });
+        await interaction.reply({ content: "Mensagem de boas-vindas atualizada!", flags: MessageFlags.Ephemeral });
       } else if (interaction.customId.startsWith("modal_panel_add_button_")) {
         const panelId = interaction.customId.replace("modal_panel_add_button_", "");
         const label = interaction.fields.getTextInputValue("label");
@@ -754,7 +763,7 @@ class DiscordBot {
           order: existingButtons.length,
         });
 
-        await interaction.reply({ content: `Botão "${label}" adicionado!`, ephemeral: true });
+        await interaction.reply({ content: `Botão "${label}" adicionado!`, flags: MessageFlags.Ephemeral });
       } else if (interaction.customId.startsWith("setup_channel_manual_")) {
         const channelType = interaction.customId.replace("setup_channel_manual_", "");
         const channelId = interaction.fields.getTextInputValue("channel_id");
@@ -762,7 +771,7 @@ class DiscordBot {
         try {
           const channel = await guild.channels.fetch(channelId);
           if (!channel) {
-            await interaction.reply({ content: "❌ Canal com este ID não foi encontrado.", ephemeral: true });
+            await interaction.reply({ content: "❌ Canal com este ID não foi encontrado.", flags: MessageFlags.Ephemeral });
             return;
           }
           
@@ -771,7 +780,7 @@ class DiscordBot {
           
           if (channelType === "category") {
             if (channel.type !== ChannelType.GuildCategory) {
-              await interaction.reply({ content: "❌ Este canal não é uma categoria. Por favor, insira o ID de uma categoria.", ephemeral: true });
+              await interaction.reply({ content: "❌ Este canal não é uma categoria. Por favor, insira o ID de uma categoria.", flags: MessageFlags.Ephemeral });
               return;
             }
             updateData.ticketCategoryId = channelId;
@@ -785,15 +794,15 @@ class DiscordBot {
           }
           
           await storage.updateGuildConfig(guild.id, updateData);
-          await interaction.reply({ content: message, ephemeral: true });
+          await interaction.reply({ content: message, flags: MessageFlags.Ephemeral });
         } catch (error: any) {
-          await interaction.reply({ content: `❌ Erro ao configurar canal: ${error.message}`, ephemeral: true });
+          await interaction.reply({ content: `❌ Erro ao configurar canal: ${error.message}`, flags: MessageFlags.Ephemeral });
         }
       }
     } catch (error: any) {
       discordLogger.error("Modal submit error", { error: error.message });
       if (!interaction.replied) {
-        await interaction.reply({ content: "Erro ao salvar configuração.", ephemeral: true });
+        await interaction.reply({ content: "Erro ao salvar configuração.", flags: MessageFlags.Ephemeral });
       }
     }
   }
@@ -806,7 +815,7 @@ class DiscordBot {
     if (!guildConfig) {
       await interaction.reply({
         content: "Configuração do servidor não encontrada.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -817,7 +826,7 @@ class DiscordBot {
     if (openTicket) {
       await interaction.reply({
         content: `Você já possui um ticket aberto: <#${openTicket.channelId}>`,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -829,14 +838,14 @@ class DiscordBot {
         if (!category || category.type !== ChannelType.GuildCategory) {
           await interaction.reply({
             content: "A categoria configurada não é válida. Por favor, contate um administrador para corrigir.",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
           return;
         }
       } catch {
         await interaction.reply({
           content: "Não foi possível encontrar a categoria de tickets. Por favor, contate um administrador.",
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
@@ -938,7 +947,7 @@ class DiscordBot {
 
     await interaction.reply({
       content: `Seu ticket foi criado: <#${ticketChannel.id}>`,
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
 
     if (guildConfig.logChannelId) {
@@ -958,7 +967,7 @@ class DiscordBot {
     if (!ticket) {
       await interaction.reply({
         content: "Este não é um canal de ticket válido.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -1011,7 +1020,7 @@ class DiscordBot {
     if (!ticket) {
       await interaction.reply({
         content: "Este não é um canal de ticket válido.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -1032,7 +1041,7 @@ class DiscordBot {
     if (!ticket) {
       await interaction.reply({
         content: "Este não é um canal de ticket válido.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -1051,12 +1060,12 @@ class DiscordBot {
       await user.send({ embeds: [dmEmbed] });
       await interaction.reply({
         content: "Notificação enviada para a DM do usuário!",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     } catch (error) {
       await interaction.reply({
         content: "Não foi possível enviar DM para o usuário. Ele pode ter as DMs fechadas.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
   }
@@ -1066,7 +1075,7 @@ class DiscordBot {
     if (!ticket) {
       await interaction.reply({
         content: "Este não é um canal de ticket válido.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -1075,7 +1084,7 @@ class DiscordBot {
     if (!guildConfig?.aiEnabled) {
       await interaction.reply({
         content: "A funcionalidade de IA não está habilitada neste servidor.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -1097,7 +1106,7 @@ class DiscordBot {
     if (!ticket) {
       await interaction.reply({
         content: "Este não é um canal de ticket válido.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -1184,7 +1193,7 @@ class DiscordBot {
     if (!ticket) {
       await interaction.reply({
         content: "Ticket não encontrado.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -1193,7 +1202,7 @@ class DiscordBot {
     if (existingFeedback) {
       await interaction.reply({
         content: "Você já avaliou este ticket!",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -1225,7 +1234,7 @@ class DiscordBot {
     if (!ticket) {
       await interaction.reply({
         content: "Ticket não encontrado.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -1618,7 +1627,7 @@ class DiscordBot {
     const panelId = interaction.customId.replace("panel_preview_", "");
     const panel = await storage.getPanel(panelId);
     if (!panel) {
-      await interaction.reply({ content: "Painel não encontrado.", ephemeral: true });
+      await interaction.reply({ content: "Painel não encontrado.", flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -1664,7 +1673,7 @@ class DiscordBot {
       content: "**Pré-visualização do Painel:**", 
       embeds: [embed], 
       components: rows,
-      ephemeral: true 
+      flags: MessageFlags.Ephemeral 
     });
   }
 
@@ -1693,7 +1702,7 @@ class DiscordBot {
     const guild = interaction.guild;
     
     if (!panel || !guild) {
-      await interaction.reply({ content: "Painel não encontrado.", ephemeral: true });
+      await interaction.reply({ content: "Painel não encontrado.", flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -1701,13 +1710,13 @@ class DiscordBot {
 
     const buttons = await storage.getPanelButtons(panelId);
     if (buttons.length === 0) {
-      await interaction.followUp({ content: "Adicione pelo menos um botão antes de publicar.", ephemeral: true });
+      await interaction.followUp({ content: "Adicione pelo menos um botão antes de publicar.", flags: MessageFlags.Ephemeral });
       return;
     }
 
     const channel = await guild.channels.fetch(panel.channelId);
     if (!channel || channel.type !== ChannelType.GuildText) {
-      await interaction.followUp({ content: "Canal não encontrado ou inválido.", ephemeral: true });
+      await interaction.followUp({ content: "Canal não encontrado ou inválido.", flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -1762,7 +1771,7 @@ class DiscordBot {
       });
     } catch (error: any) {
       discordLogger.error("Failed to publish panel via webhook", { error: error.message });
-      await interaction.followUp({ content: `Erro ao publicar painel: ${error.message}`, ephemeral: true });
+      await interaction.followUp({ content: `Erro ao publicar painel: ${error.message}`, flags: MessageFlags.Ephemeral });
     }
   }
 
@@ -1782,7 +1791,7 @@ class DiscordBot {
     const panel = await storage.getPanel(panelId);
     
     if (!panel) {
-      await interaction.followUp({ content: "Painel não encontrado.", ephemeral: true });
+      await interaction.followUp({ content: "Painel não encontrado.", flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -1863,7 +1872,7 @@ class DiscordBot {
 
     const guildConfig = await storage.getGuildConfig(guild.id);
     if (!guildConfig) {
-      await interaction.reply({ content: "Configuração do servidor não encontrada.", ephemeral: true });
+      await interaction.reply({ content: "Configuração do servidor não encontrada.", flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -1873,7 +1882,7 @@ class DiscordBot {
     if (openTicket) {
       await interaction.reply({
         content: `Você já possui um ticket aberto: <#${openTicket.channelId}>`,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -1886,14 +1895,14 @@ class DiscordBot {
         if (!category || category.type !== ChannelType.GuildCategory) {
           await interaction.reply({
             content: "A categoria configurada não é válida. Por favor, contate um administrador.",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
           return;
         }
       } catch {
         await interaction.reply({
           content: "Não foi possível encontrar a categoria. Por favor, contate um administrador.",
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
@@ -1961,7 +1970,7 @@ class DiscordBot {
 
     await ticketChannel.send({ content: `<@${interaction.user.id}>`, embeds: [welcomeEmbed], components: [row1, row2] });
 
-    await interaction.reply({ content: `Seu ticket foi criado: <#${ticketChannel.id}>`, ephemeral: true });
+    await interaction.reply({ content: `Seu ticket foi criado: <#${ticketChannel.id}>`, flags: MessageFlags.Ephemeral });
 
     if (guildConfig.logChannelId) {
       await this.sendLog(guildConfig.logChannelId, {
@@ -1986,13 +1995,13 @@ class DiscordBot {
 
     const panel = await storage.getPanel(panelId);
     if (!panel) {
-      await interaction.reply({ content: "Painel não encontrado.", ephemeral: true });
+      await interaction.reply({ content: "Painel não encontrado.", flags: MessageFlags.Ephemeral });
       return;
     }
 
     const guildConfig = await storage.getGuildConfig(guild.id);
     if (!guildConfig) {
-      await interaction.reply({ content: "Configuração do servidor não encontrada.", ephemeral: true });
+      await interaction.reply({ content: "Configuração do servidor não encontrada.", flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -2002,7 +2011,7 @@ class DiscordBot {
     if (openTicket) {
       await interaction.reply({
         content: `Você já possui um ticket aberto: <#${openTicket.channelId}>`,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -2015,14 +2024,14 @@ class DiscordBot {
         if (!category || category.type !== ChannelType.GuildCategory) {
           await interaction.reply({
             content: "A categoria configurada não é válida. Por favor, contate um administrador.",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
           return;
         }
       } catch {
         await interaction.reply({
           content: "Não foi possível encontrar a categoria. Por favor, contate um administrador.",
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
@@ -2090,7 +2099,7 @@ class DiscordBot {
 
     await ticketChannel.send({ content: `<@${interaction.user.id}>`, embeds: [welcomeEmbed], components: [row1, row2] });
 
-    await interaction.reply({ content: `Seu ticket foi criado: <#${ticketChannel.id}>`, ephemeral: true });
+    await interaction.reply({ content: `Seu ticket foi criado: <#${ticketChannel.id}>`, flags: MessageFlags.Ephemeral });
 
     if (guildConfig.logChannelId) {
       await this.sendLog(guildConfig.logChannelId, {
