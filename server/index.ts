@@ -71,6 +71,23 @@ httpServer.listen(
   },
 );
 
+// Graceful shutdown handler for Railway
+process.on("SIGTERM", () => {
+  serverLogger.info("SIGTERM received, shutting down gracefully...");
+  httpServer.close(() => {
+    serverLogger.success("Server closed");
+    process.exit(0);
+  });
+});
+
+process.on("SIGINT", () => {
+  serverLogger.info("SIGINT received, shutting down gracefully...");
+  httpServer.close(() => {
+    serverLogger.success("Server closed");
+    process.exit(0);
+  });
+});
+
 // All async operations in background (non-blocking)
 (async () => {
   try {

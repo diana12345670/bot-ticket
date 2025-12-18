@@ -10,7 +10,17 @@ let pool: pg.Pool | null = null;
 let db: ReturnType<typeof drizzle> | null = null;
 
 if (hasDatabase) {
-  pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    connectionTimeoutMillis: 10000,
+    idleTimeoutMillis: 30000,
+    max: 10,
+  });
+  
+  pool.on("error", (error) => {
+    console.error("Unexpected error on idle client in pool", error);
+  });
+  
   db = drizzle(pool, { schema });
   console.log("✓ PostgreSQL database connected");
 } else {
