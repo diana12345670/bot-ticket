@@ -572,15 +572,23 @@ class DiscordBot {
   }
 
   private async syncGuilds() {
-    for (const [guildId, guild] of this.client.guilds.cache) {
-      const existing = await storage.getGuildConfig(guildId);
-      if (!existing) {
-        await this.registerGuild(guild);
+    try {
+      for (const [guildId, guild] of this.client.guilds.cache) {
+        const existing = await storage.getGuildConfig(guildId);
+        if (!existing) {
+          await this.registerGuild(guild);
+        } else {
+          await storage.updateGuildConfig(guildId, {
+            guildName: guild.name,
+            guildIcon: guild.icon || undefined,
+          });
+        }
+      }
+    } catch (error: any) {
+      if (error.code === '42P01') {
+        discordLogger.warn("Database tables not yet initialized, skipping guild sync");
       } else {
-        await storage.updateGuildConfig(guildId, {
-          guildName: guild.name,
-          guildIcon: guild.icon || undefined,
-        });
+        throw error;
       }
     }
   }

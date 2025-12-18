@@ -45,62 +45,69 @@ app.use((req, res, next) => {
   next();
 });
 
+// Health check endpoints (MUST be BEFORE listen())
+app.get("/health", (_req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
+app.get("/ping", (_req, res) => {
+  res.status(200).json({ pong: true });
+});
+
+const port = parseInt(process.env.PORT || "5000", 10);
+
+// Start server IMMEDIATELY (outside async, before anything else)
+httpServer.listen(
+  {
+    port,
+    host: "0.0.0.0",
+    reusePort: true,
+  },
+  () => {
+    serverLogger.success(`🌐 Servidor rodando na porta ${port}`);
+    serverLogger.info(`📊 Dashboard: http://localhost:${port}`);
+    serverLogger.info(`🏥 Health: http://localhost:${port}/health`);
+    serverLogger.divider();
+  },
+);
+
+// All async operations in background (non-blocking)
 (async () => {
-  startupLogger.header("🎵 Ticket Bot Startup");
+  try {
+    startupLogger.header("🎵 Ticket Bot Startup");
 
-  // Health check endpoints (respond immediately)
-  app.get("/health", (_req, res) => {
-    res.status(200).json({ status: "ok" });
-  });
+    // Register routes
+    await registerRoutes(httpServer, app);
 
-  app.get("/ping", (_req, res) => {
-    res.status(200).json({ pong: true });
-  });
+    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+      const status = err.status || err.statusCode || 500;
+      const message = err.message || "Internal Server Error";
 
-  const port = parseInt(process.env.PORT || "5000", 10);
-
-  // Start server IMMEDIATELY (before registerRoutes) so healthcheck works
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      serverLogger.success(`🌐 Servidor rodando na porta ${port}`);
-      serverLogger.info(`📊 Dashboard: http://localhost:${port}`);
-      serverLogger.info(`🏥 Health: http://localhost:${port}/health`);
-      serverLogger.divider();
-    },
-  );
-
-  // Register routes (non-blocking for server)
-  await registerRoutes(httpServer, app);
-
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    res.status(status).json({ message });
-    throw err;
-  });
-
-  if (process.env.NODE_ENV === "production") {
-    serveStatic(app);
-  } else {
-    const { setupVite } = await import("./vite");
-    await setupVite(httpServer, app);
-  }
-
-  startupLogger.info("🔄 Inicializando Discord Bot...");
-  discordBot
-    .start()
-    .then(() => {
-      serverLogger.success("✅ Discord bot conectado com sucesso!");
-    })
-    .catch((error) => {
-      serverLogger.error("Failed to start Discord bot", {
-        error: error.message,
-      });
+      res.status(status).json({ message });
+      throw err;
     });
+
+    // Setup frontend
+    if (process.env.NODE_ENV === "production") {
+      serveStatic(app);
+    } else {
+      const { setupVite } = await import("./vite");
+      await setupVite(httpServer, app);
+    }
+
+    // Discord bot in background
+    startupLogger.info("🔄 Inicializando Discord Bot...");
+    discordBot
+      .start()
+      .then(() => {
+        serverLogger.success("✅ Discord bot conectado com sucesso!");
+      })
+      .catch((error) => {
+        serverLogger.error("Failed to start Discord bot", {
+          error: error.message,
+        });
+      });
+  } catch (error: any) {
+    serverLogger.error("Startup error", { error: error.message });
+  }
 })();
