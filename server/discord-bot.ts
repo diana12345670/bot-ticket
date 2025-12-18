@@ -96,8 +96,18 @@ class DiscordBot {
     this.client.once("clientReady", async () => {
       discordLogger.success(`Logged in as ${this.client.user?.tag}`);
       this.isReady = true;
-      await this.registerCommands();
-      await this.syncGuilds();
+      try {
+        await this.registerCommands();
+      } catch (error: any) {
+        discordLogger.error("Failed to register commands", { error: error.message });
+      }
+      
+      try {
+        await this.syncGuilds();
+      } catch (error: any) {
+        discordLogger.error("Guild sync failed on startup", { error: error.message });
+        // Don't crash bot if guild sync fails - retry later
+      }
     });
 
     this.client.on("guildCreate", async (guild) => {
@@ -544,30 +554,41 @@ class DiscordBot {
       return;
     }
 
-    const panel = await storage.createPanel({
-      guildId: guild.id,
-      channelId: channel.id,
-      createdBy: interaction.user.id,
-      title: "Sistema de Tickets",
-      description: "Clique no botão abaixo para abrir um ticket e entrar em contato com nossa equipe.",
-      embedColor: "#5865F2",
-      isConfigured: false,
-    });
+    // Show choice: configure on Discord or Website
+    const choiceEmbed = new EmbedBuilder()
+      .setColor(0x5865F2)
+      .setTitle("Como deseja configurar o painel?")
+      .setDescription("Escolha entre configurar pelo Discord com botões ou ir para o painel web para mais opções.");
 
-    await storage.createPanelButton({
-      panelId: panel.id,
-      label: "Abrir Ticket",
-      emoji: "📩",
-      style: "primary",
-      order: 0,
-    });
+    const choiceRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`panel_config_discord_${channel.id}`)
+        .setLabel("Configurar pelo Discord")
+        .setEmoji("🎮")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`panel_config_web_${channel.id}`)
+        .setLabel("Ir para o Website")
+        .setEmoji("🌐")
+        .setStyle(ButtonStyle.Secondary),
+    );
+
+    await interaction.editReply({ embeds: [choiceEmbed], components: [choiceRow] });
+  }
+
+  private async showPanelConfigurationUI(channelId: string, panelId: string, interaction: ButtonInteraction) {
+    const panel = await storage.getPanel(panelId);
+    if (!panel) {
+      await interaction.reply({ content: "❌ Painel não encontrado.", ephemeral: true });
+      return;
+    }
 
     const configEmbed = new EmbedBuilder()
       .setColor(0x5865F2)
       .setTitle("Configuração do Painel de Tickets")
       .setDescription("Configure seu painel de tickets usando os botões abaixo. Quando terminar, clique em **Publicar Painel**.")
       .addFields(
-        { name: "Canal", value: `<#${channel.id}>`, inline: true },
+        { name: "Canal", value: `<#${channelId}>`, inline: true },
         { name: "Título", value: panel.title || "Sistema de Tickets", inline: true },
         { name: "Cor", value: panel.embedColor || "#5865F2", inline: true },
         { name: "Categoria de Tickets", value: panel.categoryId ? `<#${panel.categoryId}>` : "Não configurada", inline: true },
@@ -624,7 +645,7 @@ class DiscordBot {
         .setStyle(ButtonStyle.Danger),
     );
 
-    await interaction.editReply({ embeds: [configEmbed], components: [row1, row2, row3] });
+    await interaction.update({ embeds: [configEmbed], components: [row1, row2, row3] });
   }
 
   private async handleAICommand(interaction: ChatInputCommandInteraction) {
@@ -792,6 +813,31 @@ class DiscordBot {
         await this.archiveTicket(interaction);
       } else if (customId.startsWith("feedback_")) {
         await this.handleFeedbackRating(interaction);
+      } else if (customId.startsWith("panel_config_discord_")) {
+        await interaction.deferReply({ ephemeral: true });
+        const channelId = customId.replace("panel_config_discord_", "");
+        const panel = await storage.createPanel({
+          guildId: guild!.id,
+          channelId,
+          createdBy: interaction.user.id,
+          title: "Sistema de Tickets",
+          description: "Clique no botão abaixo para abrir um ticket e entrar em contato com nossa equipe.",
+          embedColor: "#5865F2",
+          isConfigured: false,
+        });
+        await storage.createPanelButton({
+          panelId: panel.id,
+          label: "Abrir Ticket",
+          emoji: "📩",
+          style: "primary",
+          order: 0,
+        });
+        await this.showPanelConfigurationUI(channelId, panel.id, interaction);
+      } else if (customId.startsWith("panel_config_web_")) {
+        await interaction.reply({
+          content: "🌐 Acesse o painel web para configurar: https://ticketai.up.railway.app/settings\n\nLá você terá acesso a todas as opções de configuração do seu painel de tickets!",
+          ephemeral: true,
+        });
       } else if (customId.startsWith("panel_edit_title_")) {
         await this.handlePanelEditTitle(interaction);
       } else if (customId.startsWith("panel_edit_color_")) {
