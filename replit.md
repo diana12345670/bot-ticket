@@ -17,9 +17,9 @@ A comprehensive Discord ticket bot system with AI support, feedback ratings, and
 ## Tech Stack
 - **Frontend**: React + TypeScript + Tailwind CSS + Shadcn UI
 - **Backend**: Express.js + Node.js
-- **Database**: PostgreSQL with Drizzle ORM
+- **Database**: PostgreSQL with Drizzle ORM (or JSON file storage)
 - **Discord**: discord.js v14
-- **AI**: OpenAI GPT-5
+- **AI**: OpenAI GPT-4
 
 ## Project Structure
 ```
@@ -34,7 +34,8 @@ server/                 # Backend Express server
 ├── db.ts               # Database connection
 ├── discord-bot.ts      # Discord bot logic
 ├── routes.ts           # API endpoints
-├── storage.ts          # Data access layer
+├── storage.ts          # Database storage layer
+├── json-storage.ts     # JSON file storage fallback
 └── index.ts            # Server entry point
 
 shared/
@@ -42,16 +43,23 @@ shared/
 ```
 
 ## Environment Variables
-- `DATABASE_URL` - PostgreSQL connection string
-- `DISCORD_BOT_TOKEN` - Discord bot token
+
+### Required
+- `DISCORD_BOT_TOKEN` - Discord bot token (keep this secret!)
+
+### Optional
+- `DATABASE_URL` - PostgreSQL connection string (if not set, uses JSON file storage)
 - `OPENAI_API_KEY` - OpenAI API key for AI responses
+- `DATA_DIR` - Directory for JSON storage (defaults to `./data`)
+- `PORT` - Server port (defaults to 5000)
+- `NODE_ENV` - Set to `production` for deployments
 
 ## Discord Bot Commands
 ### Slash Commands (Admin only)
 - `/setup-tickets` - Configure staff role, ticket category, and log channel
-- `/painel-ticket` - Create a ticket panel with custom or AI-generated embed
+- `/painel-ticket` - Create a ticket panel with custom settings
 - `/ativar-ia` - Toggle AI responses globally for the server
-- `/resetar-tickets` - Reset all tickets for the server
+- `/resetar-tickets` - Reset all tickets for the server (irreversible!)
 - `/servidor-key` - View the server key for dashboard access (admin only)
 
 ### Button Interactions
@@ -61,6 +69,7 @@ shared/
   - "Reivindicar" - Staff claims the ticket
   - "Notificar DM" - Send DM notification to user
   - "Ativar IA" - Toggle AI responses for this ticket
+  - "Arquivar e Deletar" - Archive and delete closed ticket
 
 ## Dashboard Security
 The dashboard uses a server-specific key for authentication:
@@ -74,8 +83,8 @@ The dashboard uses a server-specific key for authentication:
 - `tickets` - Ticket records with status tracking
 - `ticket_messages` - Message history for archiving
 - `feedbacks` - User ratings and comments
-- `ticket_panels` - Multi-panel configurations (channel, title, description, color, category, welcome message)
-- `panel_buttons` - Button configurations for panels (label, emoji, style, order)
+- `ticket_panels` - Multi-panel configurations
+- `panel_buttons` - Button configurations for panels
 
 ## API Endpoints
 ### Panel Management (Authorization: Bearer {serverKey})
@@ -88,73 +97,171 @@ The dashboard uses a server-specific key for authentication:
 - `PATCH /api/dashboard/buttons/:id` - Update button
 - `DELETE /api/dashboard/buttons/:id` - Delete button
 
-## Recent Changes
-- **Webhook Panel Publishing** (Dec 17, 2025):
-  - `/painel-ticket` now sends panel messages via webhook with server avatar
-  - Webhook named "ServidorWebhook" is automatically created/reused per channel
-  - Fixed ticket evaluation message to include timestamp and status when closing
-  - New "criar_ticket" button handler for webhook-based panels
-  - Separate `createTicketFromWebhookPanel` function for webhook interactions
+## Recent Changes (Dec 18, 2025)
+
+### Bug Fixes
+- Fixed exposed Discord bot token in `.replit` configuration
+- Fixed async/await issue in channel deletion timeout
+- Fixed feedback comment modal customId parsing
+- Fixed duplicate button customIds in panel publishing
+- Fixed button layout to respect Discord's 5-button-per-row limit
+- Updated panel preview to properly handle multiple button rows
+
+### Features & Improvements
 - Multi-panel system with separate configurations per panel
-- Interactive admin configuration panel with buttons (no more command-based setup)
+- Interactive admin configuration panel with buttons
 - Support for custom server emojis in buttons
-- Category validation before ticket creation to prevent errors
+- Category validation before ticket creation
 - API endpoints for managing panels via website
-- AI integration with OpenAI GPT-5
-- Feedback system with 5-star ratings
+- AI integration with OpenAI GPT-4
+- 5-star feedback system with comments
 
 ## Webhook Implementation Details
 - When publishing a panel, the bot searches for existing webhook named "ServidorWebhook"
 - If webhook doesn't exist, bot creates one with the server's icon as avatar
 - Panel messages are sent via webhook with server name as username
 - Webhook is reused for multiple panels in the same channel
-- Button customId is fixed to "criar_ticket" for all panel buttons
+- Buttons have unique customIds to prevent conflicts
 - Ticket creation from webhook panels uses dedicated handler function
 
-## Deploy no Railway
+## Deployment
 
-### Compatibilidade
-O bot é compatível com deploy no Railway e outras plataformas. Funciona com ou sem PostgreSQL:
-- **Com PostgreSQL**: Define `DATABASE_URL` e usa banco de dados PostgreSQL
-- **Sem PostgreSQL**: Usa armazenamento em arquivo JSON automaticamente
+### Compatible Platforms
+This bot is compatible with any Node.js hosting platform:
+- **Replit** (development/testing)
+- **Railway** (recommended for production)
+- **Heroku** (legacy)
+- **VPS** (DigitalOcean, Linode, AWS, etc.)
 
-### Arquivos de Configuração
-- `Procfile` - Define o comando de start para Railway/Heroku
-- `railway.json` - Configurações específicas do Railway
-- `nixpacks.toml` - Configuração de build para Nixpacks
-- `.env.example` - Exemplo de variáveis de ambiente
+### Storage Options
+The bot automatically detects which storage to use:
 
-### Passos para Deploy no Railway
-1. Crie um novo projeto no Railway
-2. Conecte seu repositório GitHub
-3. Configure as variáveis de ambiente:
-   - `DISCORD_BOT_TOKEN` (obrigatório)
-   - `DATABASE_URL` (opcional - se não configurar, usa JSON)
-   - `OPENAI_API_KEY` (opcional - para IA)
-   - `NODE_ENV=production`
-4. Deploy automático será iniciado
+#### PostgreSQL Database (Recommended)
+- Set `DATABASE_URL` environment variable
+- Provides better performance and scalability
+- Required for production deployments at scale
+- Automatic migrations handled by Drizzle ORM
 
-### Armazenamento JSON
-Quando `DATABASE_URL` não está definido:
-- Dados são salvos em `./data/database.json`
-- Funciona perfeitamente para servidores pequenos/médios
-- Backup é simples (copiar arquivo JSON)
-- Migração para PostgreSQL possível a qualquer momento
+#### JSON File Storage (Default Fallback)
+- Used when `DATABASE_URL` is not configured
+- Stores data in `./data/database.json`
+- Perfect for small to medium-sized servers
+- Simple backup (copy the JSON file)
+- No database setup required
 
-### Variáveis de Ambiente
+### Deploy to Railway
+
+#### Step 1: Prepare Your Project
 ```bash
-# Obrigatório
-DISCORD_BOT_TOKEN=seu_token_aqui
+# Ensure your repository is clean
+git add .
+git commit -m "Deploy to Railway"
+git push
+```
 
-# Opcional - PostgreSQL
-DATABASE_URL=postgresql://user:pass@host:5432/db
+#### Step 2: Create Railway Project
+1. Go to [railway.app](https://railway.app)
+2. Click "Start New Project"
+3. Select "Deploy from GitHub"
+4. Connect your GitHub account and select this repository
 
-# Opcional - OpenAI para IA
-OPENAI_API_KEY=sua_chave_aqui
-
-# Opcional - Diretório de dados JSON
-DATA_DIR=./data
-
-# Produção
+#### Step 3: Configure Environment Variables
+In Railway dashboard, add:
+```
+DISCORD_BOT_TOKEN=your_discord_token_here
 NODE_ENV=production
 ```
+
+Optional:
+```
+DATABASE_URL=postgresql://user:pass@host:5432/db
+OPENAI_API_KEY=your_openai_key_here
+```
+
+#### Step 4: Deploy
+- Railway will automatically detect `nixpacks.toml` configuration
+- Build process: `npm ci` → `npm run build`
+- Start command: `npm run start`
+- The bot will be live immediately!
+
+### Configuration Files
+- `Procfile` - Process definition for Railway/Heroku
+- `railway.json` - Railway-specific configuration (auto-detected)
+- `nixpacks.toml` - Build environment configuration
+- `.env.example` - Environment variables template
+- `.gitignore` - Excludes `data/` directory and sensitive files
+
+### First Run Checklist
+- [ ] Set `DISCORD_BOT_TOKEN` environment variable
+- [ ] (Optional) Set `DATABASE_URL` for PostgreSQL
+- [ ] (Optional) Set `OPENAI_API_KEY` for AI features
+- [ ] Ensure bot has proper Discord permissions
+- [ ] Run `/setup-tickets` command to initialize the guild
+- [ ] Test creating a ticket with `/painel-ticket`
+
+### Backup & Migration
+#### JSON to PostgreSQL Migration
+1. Set up PostgreSQL database
+2. Set `DATABASE_URL` environment variable
+3. Restart the application
+4. Historical data remains in `./data/database.json` for reference
+5. New data will be stored in PostgreSQL
+
+#### Backup Process
+- **JSON Storage**: Copy `./data/database.json` to safe location
+- **PostgreSQL**: Use standard database backup tools (`pg_dump`, etc.)
+
+## Troubleshooting
+
+### Bot Not Responding
+1. Verify `DISCORD_BOT_TOKEN` is set correctly
+2. Check bot has required Discord permissions
+3. Ensure bot is invited to the server
+4. Check logs: `npm run dev` to see real-time logs
+
+### Database Connection Issues
+- If `DATABASE_URL` is invalid, bot automatically falls back to JSON storage
+- Check database credentials in `DATABASE_URL`
+- Verify database is accessible from deployment location
+
+### JSON Storage Issues
+- Ensure `./data/` directory has write permissions
+- On Railway, this is handled automatically
+- Check available disk space
+
+### AI Not Working
+- Verify `OPENAI_API_KEY` is set
+- Check OpenAI API quota and billing
+- Verify model name is correct (gpt-4o-mini)
+
+## Development
+
+### Local Development
+```bash
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+
+# Build for production
+npm run build
+
+# Start production server
+npm run start
+
+# Type checking
+npm run check
+
+# Database migrations
+npm run db:push
+```
+
+### Environment Setup
+```bash
+cp .env.example .env
+# Edit .env with your values
+```
+
+## Support
+For issues, questions, or feature requests, please open an issue on GitHub or contact the development team.

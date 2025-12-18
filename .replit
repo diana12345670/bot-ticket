@@ -1,9 +1,6 @@
 modules = ["nodejs-20", "postgresql-16"]
 [userenv]
 
-[userenv.shared]
-DISCORD_BOT_TOKEN = "MTQ1MDk1OTg0MDA0MTI0MjYzNQ.Gnbjrv.6rWBk-2yKR2Wxc_iTHTFaakyrqcqtZFecyfZsI"
-
 [nix]
 channel = "stable-25_05"
 

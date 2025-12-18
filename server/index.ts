@@ -3,7 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { discordBot } from "./discord-bot";
-import { serverLogger, apiLogger } from "./logger";
+import { serverLogger, apiLogger, startupLogger } from "./logger";
 
 const app = express();
 const httpServer = createServer(app);
@@ -46,6 +46,8 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  startupLogger.header("🎵 Ticket Bot Startup");
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -71,13 +73,21 @@ app.use((req, res, next) => {
       reusePort: true,
     },
     () => {
-      serverLogger.success(`Server running on port ${port}`);
+      serverLogger.success(`🌐 Servidor rodando na porta ${port}`);
+      serverLogger.info(`📊 Dashboard: http://localhost:${port}`);
+      serverLogger.divider();
     },
   );
 
-  discordBot.start().then(() => {
-    serverLogger.success("Discord bot connected");
-  }).catch((error) => {
-    serverLogger.error("Failed to start Discord bot", { error: error.message });
-  });
+  startupLogger.info("🔄 Inicializando Discord Bot...");
+  discordBot
+    .start()
+    .then(() => {
+      serverLogger.success("✅ Discord bot conectado com sucesso!");
+    })
+    .catch((error) => {
+      serverLogger.error("Failed to start Discord bot", {
+        error: error.message,
+      });
+    });
 })();

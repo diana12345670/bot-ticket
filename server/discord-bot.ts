@@ -94,10 +94,18 @@ class DiscordBot {
 
   private setupEventHandlers() {
     this.client.once("ready", async () => {
-      discordLogger.success(`Logged in as ${this.client.user?.tag}`);
       this.isReady = true;
       await this.registerCommands();
       await this.syncGuilds();
+      
+      discordLogger.botStatus("Discord Bot", {
+        username: this.client.user?.username,
+        tag: this.client.user?.tag,
+        guilds: this.client.guilds.cache.size,
+        users: this.client.users.cache.size,
+        ping: this.client.ws.ping,
+        applicationId: this.client.user?.id,
+      });
     });
 
     this.client.on("guildCreate", async (guild) => {
@@ -139,7 +147,8 @@ class DiscordBot {
         Routes.applicationCommands(this.client.user!.id),
         { body: commands.map(cmd => cmd.toJSON()) }
       );
-      discordLogger.success("Slash commands registered");
+      discordLogger.success(`🔄 Registrando ${commands.length} comandos slash...`);
+      discordLogger.commandsTotal(commands.length);
     } catch (error: any) {
       discordLogger.error("Failed to register commands", { error: error.message });
     }
@@ -1053,15 +1062,17 @@ class DiscordBot {
       content: "Arquivando e deletando canal em 5 segundos...",
     });
 
-    setTimeout(async () => {
-      try {
-        const channel = interaction.channel;
-        if (channel && "delete" in channel) {
-          await channel.delete();
+    setTimeout(() => {
+      (async () => {
+        try {
+          const channel = interaction.channel;
+          if (channel && "delete" in channel) {
+            await channel.delete();
+          }
+        } catch (error: any) {
+          discordLogger.error("Failed to delete channel", { error: error.message });
         }
-      } catch (error: any) {
-        discordLogger.error("Failed to delete channel", { error: error.message });
-      }
+      })();
     }, 5000);
   }
 
@@ -1160,7 +1171,9 @@ class DiscordBot {
   }
 
   private async handleFeedbackComment(interaction: ModalSubmitInteraction) {
-    const [, , ticketId, ratingStr] = interaction.customId.split("_");
+    const parts = interaction.customId.split("_");
+    const ticketId = parts[2];
+    const ratingStr = parts[3];
     const rating = parseInt(ratingStr);
     const comment = interaction.fields.getTextInputValue("comment") || null;
 
@@ -1553,7 +1566,8 @@ class DiscordBot {
     };
 
     const rows: ActionRowBuilder<ButtonBuilder>[] = [];
-    const row = new ActionRowBuilder<ButtonBuilder>();
+    let row = new ActionRowBuilder<ButtonBuilder>();
+    let buttonCount = 0;
     
     buttons.forEach((btn, i) => {
       const button = new ButtonBuilder()
@@ -1565,12 +1579,18 @@ class DiscordBot {
       if (btn.emoji) {
         button.setEmoji(btn.emoji);
       }
+      
       row.addComponents(button);
+      buttonCount++;
+      
+      if (buttonCount === 5 || i === buttons.length - 1) {
+        rows.push(row);
+        if (i < buttons.length - 1) {
+          row = new ActionRowBuilder<ButtonBuilder>();
+          buttonCount = 0;
+        }
+      }
     });
-
-    if (buttons.length > 0) {
-      rows.push(row);
-    }
 
     await interaction.reply({ 
       content: "**Pré-visualização do Painel:**", 
@@ -1641,23 +1661,36 @@ class DiscordBot {
         danger: ButtonStyle.Danger,
       };
 
-      const row = new ActionRowBuilder<ButtonBuilder>();
-      buttons.forEach((btn) => {
+      const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+      let row = new ActionRowBuilder<ButtonBuilder>();
+      let buttonCount = 0;
+      
+      buttons.forEach((btn, index) => {
         const button = new ButtonBuilder()
-          .setCustomId("criar_ticket")
+          .setCustomId(`criar_ticket_${index}`)
           .setLabel(btn.label || "Abrir Ticket")
           .setStyle(buttonStyles[btn.style || "primary"] || ButtonStyle.Primary);
         
         if (btn.emoji) {
           button.setEmoji(btn.emoji);
         }
+        
         row.addComponents(button);
+        buttonCount++;
+        
+        if (buttonCount === 5 || index === buttons.length - 1) {
+          rows.push(row);
+          if (index < buttons.length - 1) {
+            row = new ActionRowBuilder<ButtonBuilder>();
+            buttonCount = 0;
+          }
+        }
       });
 
       const webhookClient = new WebhookClient({ url: webhook.url });
       const message = await webhookClient.send({
         embeds: [embed],
-        components: [row],
+        components: rows,
         username: guild.name,
         avatarURL: guild.iconURL() || undefined,
       });
@@ -1946,14 +1979,26 @@ class DiscordBot {
   }
 
   async start() {
-    const token = process.env.DISCORD_BOT_TOKEN;
+    let token = process.env.DISCORD_BOT_TOKEN;
     if (!token) {
       discordLogger.error("DISCORD_BOT_TOKEN is not set");
       return;
     }
 
+    token = token.trim();
+    if (!token || token.length < 10) {
+      discordLogger.error("DISCORD_BOT_TOKEN is invalid or too short", {
+        length: token?.length || 0,
+      });
+      return;
+    }
+
     try {
+      discordLogger.info("🔄 Tentando conectar ao Discord...", {
+        tokenLength: token.length,
+      });
       await this.client.login(token);
+      discordLogger.success("✅ Conectado ao Discord com sucesso!");
     } catch (error: any) {
       discordLogger.error("Failed to login to Discord", { error: error.message });
     }
