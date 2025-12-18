@@ -1768,7 +1768,7 @@ class DiscordBot {
         .setStyle(ButtonStyle.Danger),
     );
 
-    await interaction.update({ embeds: [configEmbed], components: [row1, row2, row3] });
+    await interaction.editReply({ embeds: [configEmbed], components: [row1, row2, row3] });
   }
 
   private async createTicketFromWebhookPanel(interaction: ButtonInteraction) {
