@@ -3,10 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { discordBot } from "./discord-bot";
-import { serverLogger, apiLogger, dbLogger } from "./logger";
-import { initializeDatabase, testDatabaseConnection } from "./db-init";
-import { errorHandler } from "./error-handler";
-import { requestIdMiddleware, healthCheckMiddleware, requestTimeoutMiddleware } from "./middleware";
+import { serverLogger, apiLogger } from "./logger";
 
 const app = express();
 const httpServer = createServer(app);
@@ -16,11 +13,6 @@ declare module "http" {
     rawBody: unknown;
   }
 }
-
-// Request tracking
-app.use(requestIdMiddleware);
-app.use(healthCheckMiddleware);
-app.use(requestTimeoutMiddleware(30000));
 
 app.use(
   express.json({
@@ -54,58 +46,24 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  serverLogger.info("Application startup initiated");
+  await registerRoutes(httpServer, app);
 
-  // Initialize database before starting the bot - CRITICAL
-  let dbReady = false;
-  try {
-    serverLogger.info("Testing database connection...");
-    const dbConnected = await testDatabaseConnection();
-    
-    if (dbConnected) {
-      serverLogger.info("Initializing database schema...");
-      dbReady = await initializeDatabase();
-      
-      if (!dbReady) {
-        dbLogger.error("CRITICAL: Database initialization FAILED - tables not created!");
-        serverLogger.error("Database initialization failed - cannot start bot safely");
-        process.exit(1); // Exit if DB not ready
-      } else {
-        serverLogger.success("Database initialization successful - all tables ready");
-      }
-    } else {
-      dbLogger.error("CRITICAL: Database connection failed - cannot proceed!");
-      serverLogger.error("Database connection failed - cannot start bot");
-      process.exit(1); // Exit if can't connect
-    }
-  } catch (error: any) {
-    dbLogger.error("Database initialization error", { error: error.message });
-    serverLogger.error("Fatal database initialization error");
-    process.exit(1); // Exit on any error
-  }
+  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+    const status = err.status || err.statusCode || 500;
+    const message = err.message || "Internal Server Error";
 
-  try {
-    await registerRoutes(httpServer, app);
-  } catch (error: any) {
-    serverLogger.error("Failed to register routes", { error: error.message });
-    process.exit(1);
-  }
-
-  // Global error handler (must be last)
-  app.use(errorHandler);
+    res.status(status).json({ message });
+    throw err;
+  });
 
   if (process.env.NODE_ENV === "production") {
     serveStatic(app);
   } else {
-    try {
-      const { setupVite } = await import("./vite");
-      await setupVite(httpServer, app);
-    } catch (error: any) {
-      serverLogger.warn("Vite setup failed in development", { error: error.message });
-    }
+    const { setupVite } = await import("./vite");
+    await setupVite(httpServer, app);
   }
 
-  const port = parseInt(process.env.PORT || "8080", 10);
+  const port = parseInt(process.env.PORT || "5000", 10);
   httpServer.listen(
     {
       port,
@@ -117,16 +75,9 @@ app.use((req, res, next) => {
     },
   );
 
-  // Start Discord bot with proper error handling
-  try {
-    serverLogger.info("Starting Discord bot...");
-    await discordBot.start();
-    serverLogger.success("Discord bot initialized");
-  } catch (error: any) {
+  discordBot.start().then(() => {
+    serverLogger.success("Discord bot connected");
+  }).catch((error) => {
     serverLogger.error("Failed to start Discord bot", { error: error.message });
-    // Don't exit - allow server to run even if bot fails
-  }
-})().catch((error) => {
-  serverLogger.error("Fatal application startup error", { error: error.message });
-  process.exit(1);
-});
+  });
+})();
