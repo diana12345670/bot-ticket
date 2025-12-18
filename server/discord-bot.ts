@@ -177,10 +177,17 @@ class DiscordBot {
       }
     } catch (error: any) {
       discordLogger.error("Command error", { command: commandName, error: error.message });
-      const reply = interaction.replied || interaction.deferred
-        ? interaction.followUp.bind(interaction)
-        : interaction.reply.bind(interaction);
-      await reply({ content: "Ocorreu um erro ao executar o comando.", ephemeral: true });
+      try {
+        if (interaction.replied) {
+          await interaction.followUp({ content: "Ocorreu um erro ao executar o comando.", ephemeral: true });
+        } else if (interaction.deferred) {
+          await interaction.editReply({ content: "Ocorreu um erro ao executar o comando." });
+        } else {
+          await interaction.reply({ content: "Ocorreu um erro ao executar o comando.", ephemeral: true });
+        }
+      } catch (replyError: any) {
+        discordLogger.error("Failed to reply to error", { error: replyError.message });
+      }
     }
   }
 
@@ -642,6 +649,8 @@ class DiscordBot {
         await this.handlePanelDelete(interaction);
       } else if (customId.startsWith("panel_add_button_")) {
         await this.handlePanelAddButton(interaction);
+      } else if (customId.startsWith("panel_back_config_")) {
+        await this.handlePanelBackConfig(interaction);
       } else if (customId === "confirm_reset_tickets" && guild) {
         await interaction.deferUpdate();
         const count = await storage.resetTickets(guild.id);
@@ -671,11 +680,24 @@ class DiscordBot {
       }
     } catch (error: any) {
       discordLogger.error("Button interaction failed", { error: error.message });
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({
-          content: "Ocorreu um erro ao processar sua ação.",
-          ephemeral: true,
-        });
+      try {
+        if (interaction.replied) {
+          await interaction.followUp({
+            content: "Ocorreu um erro ao processar sua ação.",
+            ephemeral: true,
+          });
+        } else if (interaction.deferred) {
+          await interaction.editReply({
+            content: "Ocorreu um erro ao processar sua ação.",
+          });
+        } else {
+          await interaction.reply({
+            content: "Ocorreu um erro ao processar sua ação.",
+            ephemeral: true,
+          });
+        }
+      } catch (replyError: any) {
+        discordLogger.error("Failed to reply to error", { error: replyError.message });
       }
     }
   }
@@ -1730,87 +1752,230 @@ class DiscordBot {
   }
 
   private async createTicketFromWebhookPanel(interaction: ButtonInteraction) {
-    const guild = interaction.guild;
-    if (!guild) return;
+    try {
+      const guild = interaction.guild;
+      if (!guild) return;
 
-    const guildConfig = await storage.getGuildConfig(guild.id);
-    if (!guildConfig) {
-      await interaction.reply({ content: "Configuração do servidor não encontrada.", ephemeral: true });
-      return;
-    }
+      const guildConfig = await storage.getGuildConfig(guild.id);
+      if (!guildConfig) {
+        await interaction.reply({ content: "Configuração do servidor não encontrada.", ephemeral: true });
+        return;
+      }
 
-    const existingTickets = await storage.getTicketsByUser(interaction.user.id, guild.id);
-    const openTicket = existingTickets.find(t => t.status === "open" || t.status === "waiting");
-    
-    if (openTicket) {
-      await interaction.reply({
-        content: `Você já possui um ticket aberto: <#${openTicket.channelId}>`,
-        ephemeral: true,
-      });
-      return;
-    }
-
-    const categoryId = guildConfig.ticketCategoryId;
-    
-    if (categoryId) {
-      try {
-        const category = await guild.channels.fetch(categoryId);
-        if (!category || category.type !== ChannelType.GuildCategory) {
-          await interaction.reply({
-            content: "A categoria configurada não é válida. Por favor, contate um administrador.",
-            ephemeral: true,
-          });
-          return;
-        }
-      } catch {
+      const existingTickets = await storage.getTicketsByUser(interaction.user.id, guild.id);
+      const openTicket = existingTickets.find(t => t.status === "open" || t.status === "waiting");
+      
+      if (openTicket) {
         await interaction.reply({
-          content: "Não foi possível encontrar a categoria. Por favor, contate um administrador.",
+          content: `Você já possui um ticket aberto: <#${openTicket.channelId}>`,
           ephemeral: true,
         });
         return;
       }
-    }
 
-    const ticketNumber = await storage.getNextTicketNumber(guild.id);
-    const channelName = `ticket-${ticketNumber.toString().padStart(4, '0')}`;
+      const categoryId = guildConfig.ticketCategoryId;
+      
+      if (categoryId) {
+        try {
+          const category = await guild.channels.fetch(categoryId);
+          if (!category || category.type !== ChannelType.GuildCategory) {
+            await interaction.reply({
+              content: "A categoria configurada não é válida. Por favor, contate um administrador.",
+              ephemeral: true,
+            });
+            return;
+          }
+        } catch {
+          await interaction.reply({
+            content: "Não foi possível encontrar a categoria. Por favor, contate um administrador.",
+            ephemeral: true,
+          });
+          return;
+        }
+      }
 
-    const permissionOverwrites: any[] = [
-      { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-      {
-        id: interaction.user.id,
-        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
-      },
-    ];
+      const ticketNumber = await storage.getNextTicketNumber(guild.id);
+      const channelName = `ticket-${ticketNumber.toString().padStart(4, '0')}`;
 
-    if (guildConfig.staffRoleId) {
-      permissionOverwrites.push({
-        id: guildConfig.staffRoleId,
-        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageMessages],
+      const permissionOverwrites: any[] = [
+        { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+        {
+          id: interaction.user.id,
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+        },
+      ];
+
+      if (guildConfig.staffRoleId) {
+        permissionOverwrites.push({
+          id: guildConfig.staffRoleId,
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageMessages],
+        });
+      }
+
+      const ticketChannel = await guild.channels.create({
+        name: channelName,
+        type: ChannelType.GuildText,
+        parent: categoryId || undefined,
+        permissionOverwrites,
       });
+
+      const ticket = await storage.createTicket({
+        ticketNumber,
+        guildId: guild.id,
+        channelId: ticketChannel.id,
+        userId: interaction.user.id,
+        userName: interaction.user.username,
+        userAvatar: interaction.user.displayAvatarURL(),
+        status: "open",
+        aiModeEnabled: false,
+      });
+
+      const welcomeEmbed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle(`Ticket #${ticketNumber.toString().padStart(4, '0')}`)
+        .setDescription(guildConfig.welcomeMessage || "Bem-vindo ao suporte! Um membro da equipe irá atendê-lo em breve.")
+        .addFields(
+          { name: "Usuário", value: `<@${interaction.user.id}>`, inline: true },
+          { name: "Status", value: "Aberto", inline: true },
+          { name: "Criado em", value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: true }
+        )
+        .setThumbnail(interaction.user.displayAvatarURL())
+        .setFooter({ text: guild.name, iconURL: guild.iconURL() || undefined });
+
+      const row1 = new ActionRowBuilder<ButtonBuilder>()
+        .addComponents(
+          new ButtonBuilder().setCustomId("close_ticket").setLabel("Fechar Ticket").setEmoji("🔒").setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId("claim_ticket").setLabel("Reivindicar").setEmoji("✋").setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId("notify_dm").setLabel("Notificar DM").setEmoji("🔔").setStyle(ButtonStyle.Secondary)
+        );
+
+      const row2 = new ActionRowBuilder<ButtonBuilder>()
+        .addComponents(
+          new ButtonBuilder().setCustomId("toggle_ai").setLabel("Ativar IA").setEmoji("🤖").setStyle(ButtonStyle.Success)
+        );
+
+      await ticketChannel.send({ content: `<@${interaction.user.id}>`, embeds: [welcomeEmbed], components: [row1, row2] });
+
+      await interaction.reply({ content: `Seu ticket foi criado: <#${ticketChannel.id}>`, ephemeral: true });
+
+      if (guildConfig.logChannelId) {
+        await this.sendLog(guildConfig.logChannelId, {
+          color: 0x57F287,
+          title: "Ticket Criado",
+          description: `Um novo ticket foi aberto por <@${interaction.user.id}>`,
+          fields: [
+            { name: "Ticket", value: `<#${ticketChannel.id}>`, inline: true },
+            { name: "Número", value: `#${ticketNumber}`, inline: true },
+          ],
+        });
+      }
+    } catch (error: any) {
+      discordLogger.error("Failed to create ticket from webhook panel", { error: error.message });
+      try {
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({ content: "Erro ao criar ticket. Tente novamente.", ephemeral: true });
+        } else if (interaction.deferred) {
+          await interaction.editReply({ content: "Erro ao criar ticket. Tente novamente." });
+        }
+      } catch (replyError: any) {
+        discordLogger.error("Failed to reply to create ticket error", { error: replyError.message });
+      }
     }
+  }
 
-    const ticketChannel = await guild.channels.create({
-      name: channelName,
-      type: ChannelType.GuildText,
-      parent: categoryId || undefined,
-      permissionOverwrites,
-    });
+  private async createTicketFromPanel(interaction: ButtonInteraction) {
+    try {
+      const guild = interaction.guild;
+      if (!guild) return;
 
-    const ticket = await storage.createTicket({
-      ticketNumber,
-      guildId: guild.id,
-      channelId: ticketChannel.id,
-      userId: interaction.user.id,
-      userName: interaction.user.username,
-      userAvatar: interaction.user.displayAvatarURL(),
-      status: "open",
-      aiModeEnabled: false,
-    });
+      const customId = interaction.customId;
+      const parts = customId.split("_");
+      const panelId = parts[2];
 
-    const welcomeEmbed = new EmbedBuilder()
-      .setColor(0x5865F2)
-      .setTitle(`Ticket #${ticketNumber.toString().padStart(4, '0')}`)
-      .setDescription(guildConfig.welcomeMessage || "Bem-vindo ao suporte! Um membro da equipe irá atendê-lo em breve.")
+      const panel = await storage.getPanel(panelId);
+      if (!panel) {
+        await interaction.reply({ content: "Painel não encontrado.", ephemeral: true });
+        return;
+      }
+
+      const guildConfig = await storage.getGuildConfig(guild.id);
+      if (!guildConfig) {
+        await interaction.reply({ content: "Configuração do servidor não encontrada.", ephemeral: true });
+        return;
+      }
+
+      const existingTickets = await storage.getTicketsByUser(interaction.user.id, guild.id);
+      const openTicket = existingTickets.find(t => t.status === "open" || t.status === "waiting");
+      
+      if (openTicket) {
+        await interaction.reply({
+          content: `Você já possui um ticket aberto: <#${openTicket.channelId}>`,
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const categoryId = panel.categoryId || guildConfig.ticketCategoryId;
+      
+      if (categoryId) {
+        try {
+          const category = await guild.channels.fetch(categoryId);
+          if (!category || category.type !== ChannelType.GuildCategory) {
+            await interaction.reply({
+              content: "A categoria configurada não é válida. Por favor, contate um administrador.",
+              ephemeral: true,
+            });
+            return;
+          }
+        } catch {
+          await interaction.reply({
+            content: "Não foi possível encontrar a categoria. Por favor, contate um administrador.",
+            ephemeral: true,
+          });
+          return;
+        }
+      }
+
+      const ticketNumber = await storage.getNextTicketNumber(guild.id);
+      const channelName = `ticket-${ticketNumber.toString().padStart(4, '0')}`;
+
+      const permissionOverwrites: any[] = [
+        { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+        {
+          id: interaction.user.id,
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+        },
+      ];
+
+      if (guildConfig.staffRoleId) {
+        permissionOverwrites.push({
+          id: guildConfig.staffRoleId,
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageMessages],
+        });
+      }
+
+      const ticketChannel = await guild.channels.create({
+        name: channelName,
+        type: ChannelType.GuildText,
+        parent: categoryId || undefined,
+        permissionOverwrites,
+      });
+
+      const ticket = await storage.createTicket({
+        ticketNumber,
+        guildId: guild.id,
+        channelId: ticketChannel.id,
+        userId: interaction.user.id,
+        userName: interaction.user.username,
+        userAvatar: interaction.user.displayAvatarURL(),
+        status: "open",
+        aiModeEnabled: false,
+      });
+
+      const welcomeEmbed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle(`Ticket #${ticketNumber.toString().padStart(4, '0')}`)
+        .setDescription(panel.welcomeMessage || guildConfig.welcomeMessage || "Bem-vindo ao suporte!")
       .addFields(
         { name: "Usuário", value: `<@${interaction.user.id}>`, inline: true },
         { name: "Status", value: "Aberto", inline: true },
@@ -1831,150 +1996,105 @@ class DiscordBot {
         new ButtonBuilder().setCustomId("toggle_ai").setLabel("Ativar IA").setEmoji("🤖").setStyle(ButtonStyle.Success)
       );
 
-    await ticketChannel.send({ content: `<@${interaction.user.id}>`, embeds: [welcomeEmbed], components: [row1, row2] });
+      await ticketChannel.send({ content: `<@${interaction.user.id}>`, embeds: [welcomeEmbed], components: [row1, row2] });
 
-    await interaction.reply({ content: `Seu ticket foi criado: <#${ticketChannel.id}>`, ephemeral: true });
+      await interaction.reply({ content: `Seu ticket foi criado: <#${ticketChannel.id}>`, ephemeral: true });
 
-    if (guildConfig.logChannelId) {
-      await this.sendLog(guildConfig.logChannelId, {
-        color: 0x57F287,
-        title: "Ticket Criado",
-        description: `Um novo ticket foi aberto por <@${interaction.user.id}>`,
-        fields: [
-          { name: "Ticket", value: `<#${ticketChannel.id}>`, inline: true },
-          { name: "Número", value: `#${ticketNumber}`, inline: true },
-        ],
-      });
+      if (guildConfig.logChannelId) {
+        await this.sendLog(guildConfig.logChannelId, {
+          color: 0x57F287,
+          title: "Ticket Criado",
+          description: `Um novo ticket foi aberto por <@${interaction.user.id}>`,
+          fields: [
+            { name: "Ticket", value: `<#${ticketChannel.id}>`, inline: true },
+            { name: "Número", value: `#${ticketNumber}`, inline: true },
+          ],
+        });
+      }
+    } catch (error: any) {
+      discordLogger.error("Failed to create ticket from panel", { error: error.message });
+      try {
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({ content: "Erro ao criar ticket. Tente novamente.", ephemeral: true });
+        } else if (interaction.deferred) {
+          await interaction.editReply({ content: "Erro ao criar ticket. Tente novamente." });
+        }
+      } catch (replyError: any) {
+        discordLogger.error("Failed to reply to create ticket error", { error: replyError.message });
+      }
     }
   }
 
-  private async createTicketFromPanel(interaction: ButtonInteraction) {
-    const guild = interaction.guild;
-    if (!guild) return;
-
-    const customId = interaction.customId;
-    const parts = customId.split("_");
-    const panelId = parts[2];
-
+  private async handlePanelBackConfig(interaction: ButtonInteraction) {
+    const panelId = interaction.customId.replace("panel_back_config_", "");
     const panel = await storage.getPanel(panelId);
     if (!panel) {
       await interaction.reply({ content: "Painel não encontrado.", ephemeral: true });
       return;
     }
 
-    const guildConfig = await storage.getGuildConfig(guild.id);
-    if (!guildConfig) {
-      await interaction.reply({ content: "Configuração do servidor não encontrada.", ephemeral: true });
-      return;
-    }
-
-    const existingTickets = await storage.getTicketsByUser(interaction.user.id, guild.id);
-    const openTicket = existingTickets.find(t => t.status === "open" || t.status === "waiting");
-    
-    if (openTicket) {
-      await interaction.reply({
-        content: `Você já possui um ticket aberto: <#${openTicket.channelId}>`,
-        ephemeral: true,
-      });
-      return;
-    }
-
-    const categoryId = panel.categoryId || guildConfig.ticketCategoryId;
-    
-    if (categoryId) {
-      try {
-        const category = await guild.channels.fetch(categoryId);
-        if (!category || category.type !== ChannelType.GuildCategory) {
-          await interaction.reply({
-            content: "A categoria configurada não é válida. Por favor, contate um administrador.",
-            ephemeral: true,
-          });
-          return;
-        }
-      } catch {
-        await interaction.reply({
-          content: "Não foi possível encontrar a categoria. Por favor, contate um administrador.",
-          ephemeral: true,
-        });
-        return;
-      }
-    }
-
-    const ticketNumber = await storage.getNextTicketNumber(guild.id);
-    const channelName = `ticket-${ticketNumber.toString().padStart(4, '0')}`;
-
-    const permissionOverwrites: any[] = [
-      { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-      {
-        id: interaction.user.id,
-        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
-      },
-    ];
-
-    if (guildConfig.staffRoleId) {
-      permissionOverwrites.push({
-        id: guildConfig.staffRoleId,
-        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageMessages],
-      });
-    }
-
-    const ticketChannel = await guild.channels.create({
-      name: channelName,
-      type: ChannelType.GuildText,
-      parent: categoryId || undefined,
-      permissionOverwrites,
-    });
-
-    const ticket = await storage.createTicket({
-      ticketNumber,
-      guildId: guild.id,
-      channelId: ticketChannel.id,
-      userId: interaction.user.id,
-      userName: interaction.user.username,
-      userAvatar: interaction.user.displayAvatarURL(),
-      status: "open",
-      aiModeEnabled: false,
-    });
-
-    const welcomeEmbed = new EmbedBuilder()
+    const configEmbed = new EmbedBuilder()
       .setColor(0x5865F2)
-      .setTitle(`Ticket #${ticketNumber.toString().padStart(4, '0')}`)
-      .setDescription(panel.welcomeMessage || guildConfig.welcomeMessage || "Bem-vindo ao suporte!")
+      .setTitle("Configuração do Painel de Tickets")
+      .setDescription("Configure seu painel de tickets usando os botões abaixo. Quando terminar, clique em **Publicar Painel**.")
       .addFields(
-        { name: "Usuário", value: `<@${interaction.user.id}>`, inline: true },
-        { name: "Status", value: "Aberto", inline: true },
-        { name: "Criado em", value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: true }
+        { name: "Canal", value: `<#${panel.channelId}>`, inline: true },
+        { name: "Título", value: panel.title || "Sistema de Tickets", inline: true },
+        { name: "Cor", value: panel.embedColor || "#5865F2", inline: true },
+        { name: "Categoria de Tickets", value: panel.categoryId ? `<#${panel.categoryId}>` : "Não configurada", inline: true },
       )
-      .setThumbnail(interaction.user.displayAvatarURL())
-      .setFooter({ text: guild.name, iconURL: guild.iconURL() || undefined });
+      .setFooter({ text: `ID do Painel: ${panel.id}` });
 
-    const row1 = new ActionRowBuilder<ButtonBuilder>()
-      .addComponents(
-        new ButtonBuilder().setCustomId("close_ticket").setLabel("Fechar Ticket").setEmoji("🔒").setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId("claim_ticket").setLabel("Reivindicar").setEmoji("✋").setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId("notify_dm").setLabel("Notificar DM").setEmoji("🔔").setStyle(ButtonStyle.Secondary)
-      );
+    const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`panel_edit_title_${panelId}`)
+        .setLabel("Editar Título/Descrição")
+        .setEmoji("✏️")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`panel_edit_color_${panelId}`)
+        .setLabel("Cor do Embed")
+        .setEmoji("🎨")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`panel_edit_category_${panelId}`)
+        .setLabel("Categoria")
+        .setEmoji("📁")
+        .setStyle(ButtonStyle.Secondary),
+    );
 
-    const row2 = new ActionRowBuilder<ButtonBuilder>()
-      .addComponents(
-        new ButtonBuilder().setCustomId("toggle_ai").setLabel("Ativar IA").setEmoji("🤖").setStyle(ButtonStyle.Success)
-      );
+    const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`panel_edit_buttons_${panelId}`)
+        .setLabel("Gerenciar Botões")
+        .setEmoji("🔘")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`panel_edit_welcome_${panelId}`)
+        .setLabel("Mensagem de Boas-vindas")
+        .setEmoji("👋")
+        .setStyle(ButtonStyle.Secondary),
+    );
 
-    await ticketChannel.send({ content: `<@${interaction.user.id}>`, embeds: [welcomeEmbed], components: [row1, row2] });
+    const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`panel_publish_${panelId}`)
+        .setLabel("Publicar Painel")
+        .setEmoji("✅")
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`panel_preview_${panelId}`)
+        .setLabel("Visualizar")
+        .setEmoji("👁️")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`panel_delete_${panelId}`)
+        .setLabel("Cancelar")
+        .setEmoji("🗑️")
+        .setStyle(ButtonStyle.Danger),
+    );
 
-    await interaction.reply({ content: `Seu ticket foi criado: <#${ticketChannel.id}>`, ephemeral: true });
-
-    if (guildConfig.logChannelId) {
-      await this.sendLog(guildConfig.logChannelId, {
-        color: 0x57F287,
-        title: "Ticket Criado",
-        description: `Um novo ticket foi aberto por <@${interaction.user.id}>`,
-        fields: [
-          { name: "Ticket", value: `<#${ticketChannel.id}>`, inline: true },
-          { name: "Número", value: `#${ticketNumber}`, inline: true },
-        ],
-      });
-    }
+    await interaction.update({ embeds: [configEmbed], components: [row1, row2, row3] });
   }
 
   getStatus() {
