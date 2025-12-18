@@ -383,23 +383,6 @@ export default function Guilds() {
                     placeholder="Texto do botão de criar ticket"
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label>Cor do Painel</Label>
-                  <div className="flex gap-2 items-center">
-                    <Input
-                      type="color"
-                      defaultValue={guild.panelColor || "#5865F2"}
-                      onChange={(e) => updateMutation.mutate({ panelColor: e.target.value })}
-                      className="w-16 h-10 p-1 cursor-pointer"
-                    />
-                    <Input
-                      defaultValue={guild.panelColor || "#5865F2"}
-                      onBlur={(e) => updateMutation.mutate({ panelColor: e.target.value })}
-                      placeholder="#5865F2"
-                      className="flex-1"
-                    />
-                  </div>
-                </div>
               </CardContent>
             </Card>
           </div>

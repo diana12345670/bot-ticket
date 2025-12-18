@@ -172,10 +172,6 @@ export async function registerRoutes(
         totalFeedbacks: 0,
       };
 
-      if (!guilds || guilds.length === 0) {
-        return res.json(totalStats);
-      }
-
       for (const guild of guilds) {
         const guildStats = await storage.getGuildStats(guild.guildId);
         totalStats.totalTickets += guildStats.totalTickets;
@@ -195,15 +191,9 @@ export async function registerRoutes(
       }
 
       res.json(totalStats);
-    } catch (error: any) {
-      apiLogger.error("Failed to fetch stats", { error: error.message });
-      res.json({
-        totalTickets: 0,
-        openTickets: 0,
-        closedTickets: 0,
-        averageRating: 0,
-        totalFeedbacks: 0,
-      });
+    } catch (error) {
+      apiLogger.error("Failed to fetch stats");
+      res.status(500).json({ error: "Failed to fetch stats" });
     }
   });
 
@@ -279,9 +269,9 @@ export async function registerRoutes(
         return dateB - dateA;
       });
       res.json(allTickets.slice(0, 10));
-    } catch (error: any) {
-      apiLogger.error("Failed to fetch recent tickets", { error: error.message });
-      res.json([]);
+    } catch (error) {
+      apiLogger.error("Failed to fetch recent tickets");
+      res.status(500).json({ error: "Failed to fetch recent tickets" });
     }
   });
 
@@ -343,9 +333,9 @@ export async function registerRoutes(
         return dateB - dateA;
       });
       res.json(allFeedbacks.slice(0, 5));
-    } catch (error: any) {
-      apiLogger.error("Failed to fetch recent feedbacks", { error: error.message });
-      res.json([]);
+    } catch (error) {
+      apiLogger.error("Failed to fetch recent feedbacks");
+      res.status(500).json({ error: "Failed to fetch recent feedbacks" });
     }
   });
 
