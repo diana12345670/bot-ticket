@@ -48,6 +48,15 @@ app.use((req, res, next) => {
 (async () => {
   startupLogger.header("🎵 Ticket Bot Startup");
 
+  // Health check endpoint (responds immediately for Railway)
+  app.get("/health", (_req, res) => {
+    res.status(200).json({ status: "ok" });
+  });
+
+  app.get("/ping", (_req, res) => {
+    res.status(200).json({ pong: true });
+  });
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -75,6 +84,7 @@ app.use((req, res, next) => {
     () => {
       serverLogger.success(`🌐 Servidor rodando na porta ${port}`);
       serverLogger.info(`📊 Dashboard: http://localhost:${port}`);
+      serverLogger.info(`🏥 Health: http://localhost:${port}/health`);
       serverLogger.divider();
     },
   );
