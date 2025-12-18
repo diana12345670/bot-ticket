@@ -77,7 +77,7 @@ const commands = [
 class DiscordBot {
   private client: Client;
   private isReady: boolean = false;
-  private ticketCreationLocks: Set<string> = new Set();
+  private processingInteractions: Set<string> = new Set();
 
   constructor() {
     this.client = new Client({
@@ -112,18 +112,30 @@ class DiscordBot {
     });
 
     this.client.on("interactionCreate", async (interaction) => {
-      if (interaction.isChatInputCommand()) {
-        await this.handleSlashCommand(interaction);
-      } else if (interaction.isButton()) {
-        await this.handleButtonInteraction(interaction);
-      } else if (interaction.isModalSubmit()) {
-        await this.handleModalSubmit(interaction);
-      } else if (interaction.isStringSelectMenu()) {
-        await this.handleSelectMenu(interaction);
-      } else if (interaction.isRoleSelectMenu()) {
-        await this.handleRoleSelectMenu(interaction);
-      } else if (interaction.isChannelSelectMenu()) {
-        await this.handleChannelSelectMenu(interaction);
+      const interactionId = `${interaction.user.id}-${interaction.createdTimestamp}`;
+      
+      if (this.processingInteractions.has(interactionId)) {
+        return;
+      }
+      
+      this.processingInteractions.add(interactionId);
+      
+      try {
+        if (interaction.isChatInputCommand()) {
+          await this.handleSlashCommand(interaction);
+        } else if (interaction.isButton()) {
+          await this.handleButtonInteraction(interaction);
+        } else if (interaction.isModalSubmit()) {
+          await this.handleModalSubmit(interaction);
+        } else if (interaction.isStringSelectMenu()) {
+          await this.handleSelectMenu(interaction);
+        } else if (interaction.isRoleSelectMenu()) {
+          await this.handleRoleSelectMenu(interaction);
+        } else if (interaction.isChannelSelectMenu()) {
+          await this.handleChannelSelectMenu(interaction);
+        }
+      } finally {
+        setTimeout(() => this.processingInteractions.delete(interactionId), 1000);
       }
     });
 
@@ -245,14 +257,20 @@ class DiscordBot {
       case "ticket_category":
         const categorySelect = new ChannelSelectMenuBuilder()
           .setCustomId("setup_category_select")
-          .setPlaceholder("Selecione a categoria")
+          .setPlaceholder("Selecione a categoria (mostra todas)")
           .setChannelTypes(ChannelType.GuildCategory)
           .setMinValues(1)
           .setMaxValues(1);
         
         const categoryRow = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(categorySelect);
+        const allCategories = await guild.channels.fetch();
+        const categoriesList = allCategories
+          .filter(ch => ch?.type === ChannelType.GuildCategory)
+          .map(ch => `${ch?.name || "desconhecida"} (${ch?.id || "ID inválido"})`)
+          .join("\n") || "Nenhuma categoria encontrada";
+        
         await interaction.reply({
-          content: "📁 Selecione a categoria onde os tickets serão criados:",
+          content: `📁 Selecione a categoria no menu abaixo:\n\n**Categorias disponíveis:**\n${categoriesList}`,
           components: [categoryRow],
           ephemeral: true,
         });
@@ -261,22 +279,21 @@ class DiscordBot {
       case "log_channel":
         const logSelect = new ChannelSelectMenuBuilder()
           .setCustomId("setup_log_channel_select")
-          .setPlaceholder("Selecione o canal de logs")
+          .setPlaceholder("Selecione o canal de logs (mostra todos)")
           .setChannelTypes(ChannelType.GuildText)
           .setMinValues(1)
           .setMaxValues(1);
         
-        const logIdButton = new ButtonBuilder()
-          .setCustomId("setup_log_channel_id")
-          .setLabel("Usar ID do Canal")
-          .setStyle(ButtonStyle.Secondary)
-          .setEmoji("#️⃣");
-        
         const logRow = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(logSelect);
-        const logIdRow = new ActionRowBuilder<ButtonBuilder>().addComponents(logIdButton);
+        const allChannels = await guild.channels.fetch();
+        const channelsList = allChannels
+          .filter(ch => ch?.type === ChannelType.GuildText)
+          .map(ch => `#${ch?.name || "desconhecido"} (${ch?.id || "ID inválido"})`)
+          .join("\n") || "Nenhum canal de texto encontrado";
+        
         await interaction.reply({
-          content: "📝 Selecione o canal onde os logs de tickets serão enviados:\n\n*Se o canal não aparecer abaixo, clique em 'Usar ID do Canal'*",
-          components: [logRow, logIdRow],
+          content: `📝 Selecione o canal de logs no menu abaixo:\n\n**Canais disponíveis:**\n${channelsList}`,
+          components: [logRow],
           ephemeral: true,
         });
         break;
@@ -284,22 +301,21 @@ class DiscordBot {
       case "feedback_channel":
         const feedbackSelect = new ChannelSelectMenuBuilder()
           .setCustomId("setup_feedback_channel_select")
-          .setPlaceholder("Selecione o canal de feedback")
+          .setPlaceholder("Selecione o canal de feedback (mostra todos)")
           .setChannelTypes(ChannelType.GuildText)
           .setMinValues(1)
           .setMaxValues(1);
         
-        const feedbackIdButton = new ButtonBuilder()
-          .setCustomId("setup_feedback_channel_id")
-          .setLabel("Usar ID do Canal")
-          .setStyle(ButtonStyle.Secondary)
-          .setEmoji("#️⃣");
-        
         const feedbackRow = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(feedbackSelect);
-        const feedbackIdRow = new ActionRowBuilder<ButtonBuilder>().addComponents(feedbackIdButton);
+        const allFeedbackChannels = await guild.channels.fetch();
+        const feedbackChannelsList = allFeedbackChannels
+          .filter(ch => ch?.type === ChannelType.GuildText)
+          .map(ch => `#${ch?.name || "desconhecido"} (${ch?.id || "ID inválido"})`)
+          .join("\n") || "Nenhum canal de texto encontrado";
+        
         await interaction.reply({
-          content: "⭐ Selecione o canal onde os feedbacks serão enviados:\n\n*Se o canal não aparecer abaixo, clique em 'Usar ID do Canal'*",
-          components: [feedbackRow, feedbackIdRow],
+          content: `⭐ Selecione o canal de feedback no menu abaixo:\n\n**Canais disponíveis:**\n${feedbackChannelsList}`,
+          components: [feedbackRow],
           ephemeral: true,
         });
         break;
@@ -383,27 +399,6 @@ class DiscordBot {
         await interaction.reply({ content: "Erro ao configurar canal.", ephemeral: true });
       }
     }
-  }
-
-  private async handleChannelIdInput(interaction: ButtonInteraction, type: "log_channel" | "feedback_channel") {
-    const title = type === "log_channel" ? "ID do Canal de Logs" : "ID do Canal de Feedback";
-    const customId = type === "log_channel" ? "modal_log_channel_id" : "modal_feedback_channel_id";
-    
-    const modal = new ModalBuilder()
-      .setCustomId(customId)
-      .setTitle(title)
-      .addComponents(
-        new ActionRowBuilder<TextInputBuilder>().addComponents(
-          new TextInputBuilder()
-            .setCustomId("channel_id")
-            .setLabel("ID do Canal (ou cole #nome_do_canal)")
-            .setStyle(TextInputStyle.Short)
-            .setPlaceholder("123456789 ou #canal-logs")
-            .setRequired(true)
-        )
-      );
-    
-    await interaction.showModal(modal);
   }
 
   private async handlePanelCommand(interaction: ChatInputCommandInteraction) {
@@ -625,12 +620,12 @@ class DiscordBot {
     const guild = interaction.guild;
 
     try {
-      if (customId === "criar_ticket") {
-        await this.createTicketFromWebhookPanel(interaction);
-      } else if (customId.startsWith("create_ticket_")) {
+      if (customId.startsWith("create_ticket_")) {
         await this.createTicketFromPanel(interaction);
       } else if (customId === "create_ticket") {
         await this.createTicket(interaction);
+      } else if (customId === "criar_ticket") {
+        await this.createTicketFromWebhookPanel(interaction);
       } else if (customId === "close_ticket") {
         await this.closeTicket(interaction);
       } else if (customId === "claim_ticket") {
@@ -661,10 +656,8 @@ class DiscordBot {
         await this.handlePanelDelete(interaction);
       } else if (customId.startsWith("panel_add_button_")) {
         await this.handlePanelAddButton(interaction);
-      } else if (customId === "setup_log_channel_id") {
-        await this.handleChannelIdInput(interaction, "log_channel");
-      } else if (customId === "setup_feedback_channel_id") {
-        await this.handleChannelIdInput(interaction, "feedback_channel");
+      } else if (customId.startsWith("panel_back_config_")) {
+        await this.handlePanelBackToConfig(interaction);
       } else if (customId === "confirm_reset_tickets" && guild) {
         await interaction.deferUpdate();
         const count = await storage.resetTickets(guild.id);
@@ -717,63 +710,6 @@ class DiscordBot {
         const welcomeMessage = interaction.fields.getTextInputValue("message");
         await storage.updateGuildConfig(guild.id, { welcomeMessage: welcomeMessage });
         await interaction.reply({ content: "Mensagem de boas-vindas configurada!", ephemeral: true });
-        return;
-      }
-
-      if (interaction.customId === "modal_log_channel_id" || interaction.customId === "modal_feedback_channel_id") {
-        const inputValue = interaction.fields.getTextInputValue("channel_id").trim();
-        let channelId = inputValue;
-
-        // Se começar com #, tenta encontrar o canal pelo nome
-        if (inputValue.startsWith("#")) {
-          const channelName = inputValue.substring(1).toLowerCase();
-          const foundChannel = guild.channels.cache.find(
-            ch => ch.type === ChannelType.GuildText && ch.name.toLowerCase() === channelName
-          );
-          
-          if (foundChannel) {
-            channelId = foundChannel.id;
-          } else {
-            await interaction.reply({
-              content: `❌ Canal com nome #${channelName} não encontrado. Verifique se o nome está correto.`,
-              ephemeral: true
-            });
-            return;
-          }
-        }
-
-        // Verifica se o ID é válido
-        try {
-          const channel = await guild.channels.fetch(channelId);
-          if (!channel || channel.type !== ChannelType.GuildText) {
-            await interaction.reply({
-              content: `❌ Canal inválido. Certifique-se de que é um canal de texto.`,
-              ephemeral: true
-            });
-            return;
-          }
-        } catch {
-          await interaction.reply({
-            content: `❌ Canal com ID ${channelId} não encontrado. Verifique o ID.`,
-            ephemeral: true
-          });
-          return;
-        }
-
-        // Salva a configuração
-        if (interaction.customId === "modal_log_channel_id") {
-          await storage.updateGuildConfig(guild.id, { logChannelId: channelId });
-          await interaction.reply({
-            content: `✅ Canal de logs configurado: <#${channelId}>`,
-            ephemeral: true
-          });
-        } else {
-          await storage.updateGuildConfig(guild.id, { feedbackChannelId: channelId });
-          await interaction.reply({
-            content: `✅ Canal de feedback configurado: <#${channelId}>`,
-            ephemeral: true
-          });
-        }
         return;
       }
 
@@ -841,19 +777,6 @@ class DiscordBot {
   private async createTicket(interaction: ButtonInteraction) {
     const guild = interaction.guild;
     if (!guild) return;
-
-    // Impede criação duplicada de tickets
-    const lockKey = `${guild.id}_${interaction.user.id}`;
-    if (this.ticketCreationLocks.has(lockKey)) {
-      await interaction.reply({
-        content: "Aguarde um momento enquanto seu ticket está sendo criado...",
-        ephemeral: true,
-      });
-      return;
-    }
-
-    this.ticketCreationLocks.add(lockKey);
-    setTimeout(() => this.ticketCreationLocks.delete(lockKey), 3000);
 
     const guildConfig = await storage.getGuildConfig(guild.id);
     if (!guildConfig) {
@@ -1582,6 +1505,80 @@ class DiscordBot {
     await interaction.update({ embeds: [embed], components: [row] });
   }
 
+  private async handlePanelBackToConfig(interaction: ButtonInteraction) {
+    const panelId = interaction.customId.replace("panel_back_config_", "");
+    const panel = await storage.getPanel(panelId);
+    
+    if (!panel) {
+      await interaction.reply({ content: "Painel não encontrado.", ephemeral: true });
+      return;
+    }
+
+    const configEmbed = new EmbedBuilder()
+      .setColor(0x5865F2)
+      .setTitle("Configuração do Painel de Tickets")
+      .setDescription("Configure seu painel de tickets usando os botões abaixo. Quando terminar, clique em **Publicar Painel**.")
+      .addFields(
+        { name: "Canal", value: `<#${panel.channelId}>`, inline: true },
+        { name: "Título", value: panel.title || "Sistema de Tickets", inline: true },
+        { name: "Cor", value: panel.embedColor || "#5865F2", inline: true },
+        { name: "Categoria de Tickets", value: panel.categoryId ? `<#${panel.categoryId}>` : "Não configurada", inline: true },
+        { name: "Status", value: panel.isConfigured ? "✅ Configurado" : "⏳ Em configuração", inline: true },
+      )
+      .setFooter({ text: `ID do Painel: ${panel.id}` });
+
+    const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`panel_edit_title_${panel.id}`)
+        .setLabel("Editar Título/Descrição")
+        .setEmoji("✏️")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`panel_edit_color_${panel.id}`)
+        .setLabel("Cor do Embed")
+        .setEmoji("🎨")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`panel_edit_category_${panel.id}`)
+        .setLabel("Categoria")
+        .setEmoji("📁")
+        .setStyle(ButtonStyle.Secondary),
+    );
+
+    const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`panel_edit_buttons_${panel.id}`)
+        .setLabel("Gerenciar Botões")
+        .setEmoji("🔘")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`panel_edit_welcome_${panel.id}`)
+        .setLabel("Mensagem de Boas-vindas")
+        .setEmoji("👋")
+        .setStyle(ButtonStyle.Secondary),
+    );
+
+    const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`panel_preview_${panel.id}`)
+        .setLabel("Pré-visualizar")
+        .setEmoji("👁️")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`panel_publish_${panel.id}`)
+        .setLabel("Publicar Painel")
+        .setEmoji("🚀")
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`panel_delete_${panel.id}`)
+        .setLabel("Cancelar")
+        .setEmoji("❌")
+        .setStyle(ButtonStyle.Danger),
+    );
+
+    await interaction.update({ embeds: [configEmbed], components: [row1, row2, row3] });
+  }
+
   private async handlePanelEditWelcome(interaction: ButtonInteraction) {
     const panelId = interaction.customId.replace("panel_edit_welcome_", "");
     const modal = new ModalBuilder()
@@ -1802,19 +1799,6 @@ class DiscordBot {
     const guild = interaction.guild;
     if (!guild) return;
 
-    // Impede criação duplicada de tickets
-    const lockKey = `${guild.id}_${interaction.user.id}`;
-    if (this.ticketCreationLocks.has(lockKey)) {
-      await interaction.reply({
-        content: "Aguarde um momento enquanto seu ticket está sendo criado...",
-        ephemeral: true,
-      });
-      return;
-    }
-
-    this.ticketCreationLocks.add(lockKey);
-    setTimeout(() => this.ticketCreationLocks.delete(lockKey), 3000);
-
     const guildConfig = await storage.getGuildConfig(guild.id);
     if (!guildConfig) {
       await interaction.reply({ content: "Configuração do servidor não encontrada.", ephemeral: true });
@@ -1933,19 +1917,6 @@ class DiscordBot {
   private async createTicketFromPanel(interaction: ButtonInteraction) {
     const guild = interaction.guild;
     if (!guild) return;
-
-    // Impede criação duplicada de tickets
-    const lockKey = `${guild.id}_${interaction.user.id}`;
-    if (this.ticketCreationLocks.has(lockKey)) {
-      await interaction.reply({
-        content: "Aguarde um momento enquanto seu ticket está sendo criado...",
-        ephemeral: true,
-      });
-      return;
-    }
-
-    this.ticketCreationLocks.add(lockKey);
-    setTimeout(() => this.ticketCreationLocks.delete(lockKey), 3000);
 
     const customId = interaction.customId;
     const parts = customId.split("_");

@@ -339,18 +339,33 @@ export async function registerRoutes(
     }
   });
 
+  // Root health check endpoint - redirect to dashboard
+  app.get("/", (req, res) => {
+    res.redirect("/");
+  });
+
   // Bot status endpoint
   app.get("/api/bot/status", async (req, res) => {
     try {
       const { discordBot } = await import("./discord-bot");
       const status = discordBot.getStatus();
-      res.json(status);
+      res.json({
+        status: "ok",
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        bot: status,
+      });
     } catch (error) {
       res.json({
-        online: false,
-        guilds: 0,
-        users: 0,
-        ping: 0,
+        status: "ok",
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        bot: {
+          online: false,
+          guilds: 0,
+          users: 0,
+          ping: 0,
+        }
       });
     }
   });
