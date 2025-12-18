@@ -1346,8 +1346,11 @@ class DiscordBot {
     const guildConfig = await storage.getGuildConfig(ticket.guildId);
     if (!guildConfig) return;
 
+    const channel = message.channel;
+    if (!("send" in channel) || !("sendTyping" in channel)) return;
+
     try {
-      await message.channel.sendTyping();
+      await (channel as TextChannel).sendTyping();
 
       const messages = await storage.getTicketMessages(ticket.id);
       const conversationHistory = messages.slice(-10).map((m) => ({
@@ -1376,7 +1379,7 @@ class DiscordBot {
         .setDescription(aiResponse)
         .setFooter({ text: "Resposta gerada por IA" });
 
-      const sentMessage = await message.channel.send({ embeds: [embed] });
+      const sentMessage = await (channel as TextChannel).send({ embeds: [embed] });
 
       await storage.createTicketMessage({
         ticketId: ticket.id,
