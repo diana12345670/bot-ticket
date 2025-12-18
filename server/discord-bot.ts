@@ -25,7 +25,6 @@ import {
   ChannelSelectMenuBuilder,
   RoleSelectMenuInteraction,
   ChannelSelectMenuInteraction,
-  MessageFlags,
 } from "discord.js";
 import { storage } from "./storage";
 import OpenAI from "openai";
@@ -144,33 +143,12 @@ class DiscordBot {
 
   private async safeReply(interaction: any, content: string) {
     try {
-      if (!interaction || typeof interaction.reply !== 'function') return;
       if (interaction.replied || interaction.deferred) {
-        await interaction.followUp({ content, flags: MessageFlags.Ephemeral }).catch(() => {});
+        await interaction.followUp({ content, ephemeral: true }).catch(() => {});
       } else {
-        await interaction.reply({ content, flags: MessageFlags.Ephemeral }).catch(() => {});
+        await interaction.reply({ content, ephemeral: true }).catch(() => {});
       }
     } catch {
-    }
-  }
-
-  private async safeDeferReply(interaction: any, ephemeral: boolean = true): Promise<boolean> {
-    try {
-      if (!interaction || interaction.replied || interaction.deferred) return false;
-      await interaction.deferReply({ flags: ephemeral ? MessageFlags.Ephemeral : undefined });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  private async safeDeferUpdate(interaction: any): Promise<boolean> {
-    try {
-      if (!interaction || interaction.replied || interaction.deferred) return false;
-      await interaction.deferUpdate();
-      return true;
-    } catch {
-      return false;
     }
   }
 
@@ -210,7 +188,10 @@ class DiscordBot {
       }
     } catch (error: any) {
       discordLogger.error("Command error", { command: commandName, error: error.message });
-      await this.safeReply(interaction, "Ocorreu um erro ao executar o comando.");
+      const reply = interaction.replied || interaction.deferred
+        ? interaction.followUp.bind(interaction)
+        : interaction.reply.bind(interaction);
+      await reply({ content: "Ocorreu um erro ao executar o comando.", ephemeral: true });
     }
   }
 
@@ -218,7 +199,7 @@ class DiscordBot {
     const guild = interaction.guild;
     if (!guild) return;
 
-    if (!await this.safeDeferReply(interaction)) return;
+    await interaction.deferReply({ ephemeral: true });
 
     let guildConfig = await storage.getGuildConfig(guild.id);
     if (!guildConfig) {
@@ -277,8 +258,8 @@ class DiscordBot {
           await interaction.reply({
             content: "👥 Selecione o cargo que poderá ver e responder os tickets:",
             components: [roleRow],
-            flags: MessageFlags.Ephemeral,
-          }).catch(() => {});
+            ephemeral: true,
+          });
           break;
 
         case "ticket_category":
@@ -293,8 +274,8 @@ class DiscordBot {
           await interaction.reply({
             content: "📁 Selecione a categoria onde os tickets serão criados:",
             components: [categoryRow],
-            flags: MessageFlags.Ephemeral,
-          }).catch(() => {});
+            ephemeral: true,
+          });
           break;
 
         case "log_channel":
@@ -309,8 +290,8 @@ class DiscordBot {
           await interaction.reply({
             content: "📝 Selecione o canal onde os logs de tickets serão enviados:",
             components: [logRow],
-            flags: MessageFlags.Ephemeral,
-          }).catch(() => {});
+            ephemeral: true,
+          });
           break;
 
         case "feedback_channel":
@@ -325,8 +306,8 @@ class DiscordBot {
           await interaction.reply({
             content: "⭐ Selecione o canal onde os feedbacks serão enviados:",
             components: [feedbackRow],
-            flags: MessageFlags.Ephemeral,
-          }).catch(() => {});
+            ephemeral: true,
+          });
           break;
 
         case "welcome_message":
@@ -344,7 +325,7 @@ class DiscordBot {
                   .setMaxLength(1000)
               )
             );
-          await interaction.showModal(welcomeModal).catch(() => {});
+          await interaction.showModal(welcomeModal);
           break;
       }
     } catch (error: any) {
@@ -411,7 +392,7 @@ class DiscordBot {
     const guild = interaction.guild;
     if (!guild) return;
 
-    if (!await this.safeDeferReply(interaction)) return;
+    await interaction.reply({ ephemeral: true, content: "⏳ Processando..." });
 
     const channel = interaction.options.getChannel("canal");
     if (!channel) {
@@ -449,8 +430,6 @@ class DiscordBot {
     const customId = interaction.customId;
     
     try {
-      if (!await this.safeDeferUpdate(interaction)) return;
-
       if (customId.startsWith("panel_config_website_")) {
         const channelId = customId.replace("panel_config_website_", "");
         const dashboardUrl = "https://ticketai.up.railway.app/";
@@ -463,18 +442,15 @@ class DiscordBot {
             { name: "Canal Selecionado", value: `<#${channelId}>`, inline: true }
           );
 
-        await interaction.editReply({ embeds: [embed], components: [] });
+        await interaction.update({ embeds: [embed], components: [] });
       } else if (customId.startsWith("panel_config_discord_")) {
         const channelId = customId.replace("panel_config_discord_", "");
         const guild = interaction.guild;
-        if (!guild) {
-          await interaction.editReply({ content: "Servidor não encontrado.", components: [] });
-          return;
-        }
+        if (!guild) return;
 
         const channel = await guild.channels.fetch(channelId).catch(() => null);
         if (!channel) {
-          await interaction.editReply({ content: "Canal não encontrado.", components: [] });
+          await interaction.update({ content: "Canal não encontrado.", components: [] });
           return;
         }
 
@@ -488,85 +464,80 @@ class DiscordBot {
           isConfigured: false,
         });
 
-        if (panel) {
-          await storage.createPanelButton({
-            panelId: panel.id,
-            label: "Abrir Ticket",
-            emoji: "📩",
-            style: "primary",
-            order: 0,
-          });
+        await storage.createPanelButton({
+          panelId: panel.id,
+          label: "Abrir Ticket",
+          emoji: "📩",
+          style: "primary",
+          order: 0,
+        });
 
-          const configEmbed = new EmbedBuilder()
-            .setColor(0x5865F2)
-            .setTitle("Configuração do Painel de Tickets")
-            .setDescription("Configure seu painel de tickets usando os botões abaixo. Quando terminar, clique em **Publicar Painel**.")
-            .addFields(
-              { name: "Canal", value: `<#${channel.id}>`, inline: true },
-              { name: "Título", value: panel.title || "Sistema de Tickets", inline: true },
-              { name: "Cor", value: panel.embedColor || "#5865F2", inline: true },
-              { name: "Categoria de Tickets", value: panel.categoryId ? `<#${panel.categoryId}>` : "Não configurada", inline: true },
-              { name: "Botões", value: "1 botão configurado", inline: true },
-            )
-            .setFooter({ text: `ID do Painel: ${panel.id}` });
+        const configEmbed = new EmbedBuilder()
+          .setColor(0x5865F2)
+          .setTitle("Configuração do Painel de Tickets")
+          .setDescription("Configure seu painel de tickets usando os botões abaixo. Quando terminar, clique em **Publicar Painel**.")
+          .addFields(
+            { name: "Canal", value: `<#${channel.id}>`, inline: true },
+            { name: "Título", value: panel.title || "Sistema de Tickets", inline: true },
+            { name: "Cor", value: panel.embedColor || "#5865F2", inline: true },
+            { name: "Categoria de Tickets", value: panel.categoryId ? `<#${panel.categoryId}>` : "Não configurada", inline: true },
+            { name: "Botões", value: "1 botão configurado", inline: true },
+          )
+          .setFooter({ text: `ID do Painel: ${panel.id}` });
 
-          const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`panel_edit_title_${panel.id}`)
-              .setLabel("Editar Título/Descrição")
-              .setEmoji("✏️")
-              .setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder()
-              .setCustomId(`panel_edit_color_${panel.id}`)
-              .setLabel("Cor do Embed")
-              .setEmoji("🎨")
-              .setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder()
-              .setCustomId(`panel_edit_category_${panel.id}`)
-              .setLabel("Categoria")
-              .setEmoji("📁")
-              .setStyle(ButtonStyle.Secondary),
-          );
+        const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`panel_edit_title_${panel.id}`)
+            .setLabel("Editar Título/Descrição")
+            .setEmoji("✏️")
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId(`panel_edit_color_${panel.id}`)
+            .setLabel("Cor do Embed")
+            .setEmoji("🎨")
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId(`panel_edit_category_${panel.id}`)
+            .setLabel("Categoria")
+            .setEmoji("📁")
+            .setStyle(ButtonStyle.Secondary),
+        );
 
-          const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`panel_edit_buttons_${panel.id}`)
-              .setLabel("Gerenciar Botões")
-              .setEmoji("🔘")
-              .setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder()
-              .setCustomId(`panel_edit_welcome_${panel.id}`)
-              .setLabel("Mensagem de Boas-vindas")
-              .setEmoji("👋")
-              .setStyle(ButtonStyle.Secondary),
-          );
+        const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`panel_edit_buttons_${panel.id}`)
+            .setLabel("Gerenciar Botões")
+            .setEmoji("🔘")
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId(`panel_edit_welcome_${panel.id}`)
+            .setLabel("Mensagem de Boas-vindas")
+            .setEmoji("👋")
+            .setStyle(ButtonStyle.Secondary),
+        );
 
-          const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`panel_publish_${panel.id}`)
-              .setLabel("Publicar Painel")
-              .setEmoji("✅")
-              .setStyle(ButtonStyle.Success),
-            new ButtonBuilder()
-              .setCustomId(`panel_preview_${panel.id}`)
-              .setLabel("Visualizar")
-              .setEmoji("👁️")
-              .setStyle(ButtonStyle.Primary),
-            new ButtonBuilder()
-              .setCustomId(`panel_delete_${panel.id}`)
-              .setLabel("Cancelar")
-              .setEmoji("🗑️")
-              .setStyle(ButtonStyle.Danger),
-          );
+        const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`panel_publish_${panel.id}`)
+            .setLabel("Publicar Painel")
+            .setEmoji("✅")
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`panel_preview_${panel.id}`)
+            .setLabel("Visualizar")
+            .setEmoji("👁️")
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId(`panel_delete_${panel.id}`)
+            .setLabel("Cancelar")
+            .setEmoji("🗑️")
+            .setStyle(ButtonStyle.Danger),
+        );
 
-          await interaction.editReply({ embeds: [configEmbed], components: [row1, row2, row3] });
-        } else {
-          await interaction.editReply({ content: "Erro ao criar painel.", components: [] });
-        }
+        await interaction.update({ embeds: [configEmbed], components: [row1, row2, row3] });
       }
     } catch (error: any) {
       discordLogger.error("Panel config choice error", { error: error.message });
-      await interaction.editReply({ content: "Erro ao processar sua solicitação.", components: [] }).catch(() => {});
     }
   }
 
@@ -574,7 +545,7 @@ class DiscordBot {
     const guild = interaction.guild;
     if (!guild) return;
 
-    if (!await this.safeDeferReply(interaction)) return;
+    await interaction.deferReply({ ephemeral: true });
 
     const ativar = interaction.options.getBoolean("ativar", true);
     const prompt = interaction.options.getString("prompt");
@@ -626,14 +597,14 @@ class DiscordBot {
         .setStyle(ButtonStyle.Secondary)
     );
 
-    await interaction.reply({ embeds: [confirmEmbed], components: [row], flags: MessageFlags.Ephemeral }).catch(() => {});
+    await interaction.reply({ embeds: [confirmEmbed], components: [row], ephemeral: true });
   }
 
   private async handleKeyCommand(interaction: ChatInputCommandInteraction) {
     const guild = interaction.guild;
     if (!guild) return;
 
-    if (!await this.safeDeferReply(interaction)) return;
+    await interaction.deferReply({ ephemeral: true });
 
     let guildConfig = await storage.getGuildConfig(guild.id);
     if (!guildConfig) {
@@ -778,7 +749,7 @@ class DiscordBot {
       if (interaction.customId === "setup_welcome") {
         const welcomeMessage = interaction.fields.getTextInputValue("message");
         await storage.updateGuildConfig(guild.id, { welcomeMessage: welcomeMessage });
-        await interaction.reply({ content: "Mensagem de boas-vindas configurada!", flags: MessageFlags.Ephemeral }).catch(() => {});
+        await interaction.reply({ content: "Mensagem de boas-vindas configurada!", ephemeral: true });
         return;
       }
 
@@ -787,13 +758,13 @@ class DiscordBot {
         const title = interaction.fields.getTextInputValue("title");
         const description = interaction.fields.getTextInputValue("description");
         await storage.updatePanel(panelId, { title, description });
-        await interaction.reply({ content: "Título e descrição atualizados!", flags: MessageFlags.Ephemeral }).catch(() => {});
+        await interaction.reply({ content: "Título e descrição atualizados!", ephemeral: true });
       } else if (interaction.customId.startsWith("modal_panel_color_")) {
         const panelId = interaction.customId.replace("modal_panel_color_", "");
         let color = interaction.fields.getTextInputValue("color");
         if (!color.startsWith("#")) color = "#" + color;
         await storage.updatePanel(panelId, { embedColor: color });
-        await interaction.reply({ content: `Cor atualizada para ${color}!`, flags: MessageFlags.Ephemeral }).catch(() => {});
+        await interaction.reply({ content: `Cor atualizada para ${color}!`, ephemeral: true });
       } else if (interaction.customId.startsWith("modal_panel_category_")) {
         const panelId = interaction.customId.replace("modal_panel_category_", "");
         const categoryId = interaction.fields.getTextInputValue("category_id");
@@ -801,28 +772,21 @@ class DiscordBot {
         try {
           const category = await guild.channels.fetch(categoryId);
           if (!category || category.type !== ChannelType.GuildCategory) {
-            await interaction.reply({ content: "ID inválido. Certifique-se de que é uma categoria.", flags: MessageFlags.Ephemeral }).catch(() => {});
+            await interaction.reply({ content: "ID inválido. Certifique-se de que é uma categoria.", ephemeral: true });
             return;
           }
           await storage.updatePanel(panelId, { categoryId });
-          await interaction.reply({ content: `Categoria configurada: <#${categoryId}>`, flags: MessageFlags.Ephemeral }).catch(() => {});
+          await interaction.reply({ content: `Categoria configurada: <#${categoryId}>`, ephemeral: true });
         } catch {
-          await interaction.reply({ content: "Categoria não encontrada.", flags: MessageFlags.Ephemeral }).catch(() => {});
+          await interaction.reply({ content: "Categoria não encontrada.", ephemeral: true });
         }
       } else if (interaction.customId.startsWith("modal_panel_welcome_")) {
         const panelId = interaction.customId.replace("modal_panel_welcome_", "");
         const welcome = interaction.fields.getTextInputValue("welcome");
         await storage.updatePanel(panelId, { welcomeMessage: welcome });
-        await interaction.reply({ content: "Mensagem de boas-vindas atualizada!", flags: MessageFlags.Ephemeral }).catch(() => {});
+        await interaction.reply({ content: "Mensagem de boas-vindas atualizada!", ephemeral: true });
       } else if (interaction.customId.startsWith("modal_panel_add_button_")) {
         const panelId = interaction.customId.replace("modal_panel_add_button_", "");
-        const panel = await storage.getPanel(panelId);
-        
-        if (!panel) {
-          await interaction.reply({ content: "Painel não encontrado.", flags: MessageFlags.Ephemeral });
-          return;
-        }
-
         const label = interaction.fields.getTextInputValue("label");
         const emoji = interaction.fields.getTextInputValue("emoji") || undefined;
         let style = interaction.fields.getTextInputValue("style").toLowerCase() as any;
@@ -840,7 +804,7 @@ class DiscordBot {
           order: existingButtons.length,
         });
 
-        await interaction.reply({ content: `Botão "${label}" adicionado!`, flags: MessageFlags.Ephemeral }).catch(() => {});
+        await interaction.reply({ content: `Botão "${label}" adicionado!`, ephemeral: true });
       }
     } catch (error: any) {
       discordLogger.error("Modal submit error", { error: error.message });
@@ -852,13 +816,12 @@ class DiscordBot {
     const guild = interaction.guild;
     if (!guild) return;
 
-    if (!await this.safeDeferReply(interaction)) return;
-
     const guildConfig = await storage.getGuildConfig(guild.id);
     if (!guildConfig) {
-      await interaction.editReply({
+      await interaction.reply({
         content: "Configuração do servidor não encontrada.",
-      }).catch(() => {});
+        ephemeral: true,
+      });
       return;
     }
 
@@ -866,9 +829,10 @@ class DiscordBot {
     const openTicket = existingTickets.find(t => t.status === "open" || t.status === "waiting");
     
     if (openTicket) {
-      await interaction.editReply({
+      await interaction.reply({
         content: `Você já possui um ticket aberto: <#${openTicket.channelId}>`,
-      }).catch(() => {});
+        ephemeral: true,
+      });
       return;
     }
 
@@ -877,15 +841,17 @@ class DiscordBot {
       try {
         const category = await guild.channels.fetch(categoryId);
         if (!category || category.type !== ChannelType.GuildCategory) {
-          await interaction.editReply({
+          await interaction.reply({
             content: "A categoria configurada não é válida. Por favor, contate um administrador para corrigir.",
-          }).catch(() => {});
+            ephemeral: true,
+          });
           return;
         }
       } catch {
-        await interaction.editReply({
+        await interaction.reply({
           content: "Não foi possível encontrar a categoria de tickets. Por favor, contate um administrador.",
-        }).catch(() => {});
+          ephemeral: true,
+        });
         return;
       }
     }
@@ -984,9 +950,10 @@ class DiscordBot {
       components: [row1, row2],
     });
 
-    await interaction.editReply({
+    await interaction.reply({
       content: `Seu ticket foi criado: <#${ticketChannel.id}>`,
-    }).catch(() => {});
+      ephemeral: true,
+    });
 
     if (guildConfig.logChannelId) {
       await this.sendLog(guildConfig.logChannelId, {
@@ -1001,13 +968,12 @@ class DiscordBot {
   }
 
   private async closeTicket(interaction: ButtonInteraction) {
-    if (!await this.safeDeferReply(interaction, false)) return;
-    
     const ticket = await storage.getTicketByChannel(interaction.channelId);
     if (!ticket) {
-      await interaction.editReply({
+      await interaction.reply({
         content: "Este não é um canal de ticket válido.",
-      }).catch(() => {});
+        ephemeral: true,
+      });
       return;
     }
 
@@ -1033,10 +999,10 @@ class DiscordBot {
           .setStyle(ButtonStyle.Secondary)
       );
 
-    await interaction.editReply({
+    await interaction.reply({
       embeds: [closeEmbed],
       components: [archiveRow],
-    }).catch(() => {});
+    });
 
     await this.sendFeedbackDM(ticket);
 
@@ -1055,13 +1021,12 @@ class DiscordBot {
   }
 
   private async claimTicket(interaction: ButtonInteraction) {
-    if (!await this.safeDeferReply(interaction, false)) return;
-    
     const ticket = await storage.getTicketByChannel(interaction.channelId);
     if (!ticket) {
-      await interaction.editReply({
+      await interaction.reply({
         content: "Este não é um canal de ticket válido.",
-      }).catch(() => {});
+        ephemeral: true,
+      });
       return;
     }
 
@@ -1071,19 +1036,18 @@ class DiscordBot {
       status: "waiting",
     });
 
-    await interaction.editReply({
+    await interaction.reply({
       content: `<@${interaction.user.id}> assumiu o atendimento deste ticket.`,
-    }).catch(() => {});
+    });
   }
 
   private async notifyUserDM(interaction: ButtonInteraction) {
-    if (!await this.safeDeferReply(interaction)) return;
-    
     const ticket = await storage.getTicketByChannel(interaction.channelId);
     if (!ticket) {
-      await interaction.editReply({
+      await interaction.reply({
         content: "Este não é um canal de ticket válido.",
-      }).catch(() => {});
+        ephemeral: true,
+      });
       return;
     }
 
@@ -1099,32 +1063,34 @@ class DiscordBot {
         .setTimestamp();
 
       await user.send({ embeds: [dmEmbed] });
-      await interaction.editReply({
+      await interaction.reply({
         content: "Notificação enviada para a DM do usuário!",
-      }).catch(() => {});
+        ephemeral: true,
+      });
     } catch (error) {
-      await interaction.editReply({
+      await interaction.reply({
         content: "Não foi possível enviar DM para o usuário. Ele pode ter as DMs fechadas.",
-      }).catch(() => {});
+        ephemeral: true,
+      });
     }
   }
 
   private async toggleAI(interaction: ButtonInteraction) {
-    if (!await this.safeDeferReply(interaction, false)) return;
-    
     const ticket = await storage.getTicketByChannel(interaction.channelId);
     if (!ticket) {
-      await interaction.editReply({
+      await interaction.reply({
         content: "Este não é um canal de ticket válido.",
-      }).catch(() => {});
+        ephemeral: true,
+      });
       return;
     }
 
     const guildConfig = await storage.getGuildConfig(ticket.guildId);
     if (!guildConfig?.aiEnabled) {
-      await interaction.editReply({
+      await interaction.reply({
         content: "A funcionalidade de IA não está habilitada neste servidor.",
-      }).catch(() => {});
+        ephemeral: true,
+      });
       return;
     }
 
@@ -1133,21 +1099,20 @@ class DiscordBot {
       aiModeEnabled: newAiState,
     });
 
-    await interaction.editReply({
+    await interaction.reply({
       content: newAiState
         ? "🤖 Modo IA **ativado**! A IA irá responder automaticamente às mensagens."
         : "🤖 Modo IA **desativado**. Um membro da equipe irá atender.",
-    }).catch(() => {});
+    });
   }
 
   private async archiveTicket(interaction: ButtonInteraction) {
-    if (!await this.safeDeferReply(interaction, false)) return;
-    
     const ticket = await storage.getTicketByChannel(interaction.channelId);
     if (!ticket) {
-      await interaction.editReply({
+      await interaction.reply({
         content: "Este não é um canal de ticket válido.",
-      }).catch(() => {});
+        ephemeral: true,
+      });
       return;
     }
 
@@ -1155,9 +1120,9 @@ class DiscordBot {
       status: "archived",
     });
 
-    await interaction.editReply({
+    await interaction.reply({
       content: "Arquivando e deletando canal em 5 segundos...",
-    }).catch(() => {});
+    });
 
     setTimeout(async () => {
       try {
@@ -1226,80 +1191,74 @@ class DiscordBot {
   }
 
   private async handleFeedbackRating(interaction: ButtonInteraction) {
-    try {
-      const [, ratingStr, ticketId] = interaction.customId.split("_");
-      const rating = parseInt(ratingStr);
+    const [, ratingStr, ticketId] = interaction.customId.split("_");
+    const rating = parseInt(ratingStr);
 
-      const ticket = await storage.getTicket(ticketId);
-      if (!ticket) {
-        await interaction.reply({
-          content: "Ticket não encontrado.",
-          flags: MessageFlags.Ephemeral,
-        }).catch(() => {});
-        return;
-      }
-
-      const existingFeedback = await storage.getFeedback(ticketId);
-      if (existingFeedback) {
-        await interaction.reply({
-          content: "Você já avaliou este ticket!",
-          flags: MessageFlags.Ephemeral,
-        }).catch(() => {});
-        return;
-      }
-
-      const modal = new ModalBuilder()
-        .setCustomId(`feedback_comment_${ticketId}_${rating}`)
-        .setTitle("Deixe um comentário (opcional)");
-
-      const commentInput = new TextInputBuilder()
-        .setCustomId("comment")
-        .setLabel("Comentário")
-        .setPlaceholder("Conte-nos mais sobre sua experiência...")
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(false)
-        .setMaxLength(500);
-
-      const actionRow = new ActionRowBuilder<TextInputBuilder>().addComponents(commentInput);
-      modal.addComponents(actionRow);
-
-      await interaction.showModal(modal).catch(() => {});
-    } catch (error: any) {
-      discordLogger.error("Feedback rating error", { error: error.message });
+    const ticket = await storage.getTicket(ticketId);
+    if (!ticket) {
+      await interaction.reply({
+        content: "Ticket não encontrado.",
+        ephemeral: true,
+      });
+      return;
     }
+
+    const existingFeedback = await storage.getFeedback(ticketId);
+    if (existingFeedback) {
+      await interaction.reply({
+        content: "Você já avaliou este ticket!",
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const modal = new ModalBuilder()
+      .setCustomId(`feedback_comment_${ticketId}_${rating}`)
+      .setTitle("Deixe um comentário (opcional)");
+
+    const commentInput = new TextInputBuilder()
+      .setCustomId("comment")
+      .setLabel("Comentário")
+      .setPlaceholder("Conte-nos mais sobre sua experiência...")
+      .setStyle(TextInputStyle.Paragraph)
+      .setRequired(false)
+      .setMaxLength(500);
+
+    const actionRow = new ActionRowBuilder<TextInputBuilder>().addComponents(commentInput);
+    modal.addComponents(actionRow);
+
+    await interaction.showModal(modal);
   }
 
   private async handleFeedbackComment(interaction: ModalSubmitInteraction) {
-    try {
-      if (!await this.safeDeferReply(interaction, false)) return;
-      
-      const [, , ticketId, ratingStr] = interaction.customId.split("_");
-      const rating = parseInt(ratingStr);
-      const comment = interaction.fields.getTextInputValue("comment") || null;
+    const [, , ticketId, ratingStr] = interaction.customId.split("_");
+    const rating = parseInt(ratingStr);
+    const comment = interaction.fields.getTextInputValue("comment") || null;
 
-      const ticket = await storage.getTicket(ticketId);
-      if (!ticket) {
-        await interaction.editReply({
-          content: "Ticket não encontrado.",
-        }).catch(() => {});
-        return;
-      }
-
-      await storage.createFeedback({
-        ticketId,
-        guildId: ticket.guildId,
-        userId: interaction.user.id,
-        userName: interaction.user.username,
-        staffId: ticket.staffId || undefined,
-        staffName: ticket.staffName || undefined,
-        rating,
-        comment,
+    const ticket = await storage.getTicket(ticketId);
+    if (!ticket) {
+      await interaction.reply({
+        content: "Ticket não encontrado.",
+        ephemeral: true,
       });
+      return;
+    }
 
-      const stars = "⭐".repeat(rating);
-      await interaction.editReply({
-        content: `Obrigado pela sua avaliação! ${stars}\n${comment ? `Comentário: "${comment}"` : ""}`,
-      }).catch(() => {});
+    await storage.createFeedback({
+      ticketId,
+      guildId: ticket.guildId,
+      userId: interaction.user.id,
+      userName: interaction.user.username,
+      staffId: ticket.staffId || undefined,
+      staffName: ticket.staffName || undefined,
+      rating,
+      comment,
+    });
+
+    const stars = "⭐".repeat(rating);
+    await interaction.reply({
+      content: `Obrigado pela sua avaliação! ${stars}\n${comment ? `Comentário: "${comment}"` : ""}`,
+    });
 
     const guildConfig = await storage.getGuildConfig(ticket.guildId);
     if (guildConfig?.feedbackChannelId) {
@@ -1311,9 +1270,6 @@ class DiscordBot {
         staffName: ticket.staffName,
         ticketNumber: ticket.ticketNumber,
       });
-    }
-    } catch (error: any) {
-      discordLogger.error("Feedback comment error", { error: error.message });
     }
   }
 
@@ -1373,11 +1329,8 @@ class DiscordBot {
     const guildConfig = await storage.getGuildConfig(ticket.guildId);
     if (!guildConfig) return;
 
-    const channel = message.channel;
-    if (!("send" in channel) || !("sendTyping" in channel)) return;
-
     try {
-      await (channel as TextChannel).sendTyping();
+      await message.channel.sendTyping();
 
       const messages = await storage.getTicketMessages(ticket.id);
       const conversationHistory = messages.slice(-10).map((m) => ({
@@ -1406,7 +1359,7 @@ class DiscordBot {
         .setDescription(aiResponse)
         .setFooter({ text: "Resposta gerada por IA" });
 
-      const sentMessage = await (channel as TextChannel).send({ embeds: [embed] });
+      const sentMessage = await message.channel.send({ embeds: [embed] });
 
       await storage.createTicketMessage({
         ticketId: ticket.id,
@@ -1513,7 +1466,7 @@ class DiscordBot {
             .setMaxLength(1000)
         )
       );
-    await interaction.showModal(modal).catch(() => {});
+    await interaction.showModal(modal);
   }
 
   private async handlePanelEditColor(interaction: ButtonInteraction) {
@@ -1532,7 +1485,7 @@ class DiscordBot {
             .setMaxLength(7)
         )
       );
-    await interaction.showModal(modal).catch(() => {});
+    await interaction.showModal(modal);
   }
 
   private async handlePanelEditCategory(interaction: ButtonInteraction) {
@@ -1550,51 +1503,44 @@ class DiscordBot {
             .setPlaceholder("Cole o ID da categoria aqui")
         )
       );
-    await interaction.showModal(modal).catch(() => {});
+    await interaction.showModal(modal);
   }
 
   private async handlePanelEditButtons(interaction: ButtonInteraction) {
     const panelId = interaction.customId.replace("panel_edit_buttons_", "");
-    
-    try {
-      if (!await this.safeDeferUpdate(interaction)) return;
-      const buttons = await storage.getPanelButtons(panelId);
+    const buttons = await storage.getPanelButtons(panelId);
 
-      const embed = new EmbedBuilder()
-        .setColor(0x5865F2)
-        .setTitle("Gerenciar Botões")
-        .setDescription("Configure os botões do seu painel de tickets.\n\n**Botões atuais:**");
+    const embed = new EmbedBuilder()
+      .setColor(0x5865F2)
+      .setTitle("Gerenciar Botões")
+      .setDescription("Configure os botões do seu painel de tickets.\n\n**Botões atuais:**");
 
-      if (buttons.length === 0) {
-        embed.addFields({ name: "Nenhum botão", value: "Adicione um botão para continuar." });
-      } else {
-        buttons.forEach((btn, i) => {
-          embed.addFields({
-            name: `Botão ${i + 1}`,
-            value: `${btn.emoji || ""} ${btn.label} (${btn.style})`,
-            inline: true
-          });
+    if (buttons.length === 0) {
+      embed.addFields({ name: "Nenhum botão", value: "Adicione um botão para continuar." });
+    } else {
+      buttons.forEach((btn, i) => {
+        embed.addFields({
+          name: `Botão ${i + 1}`,
+          value: `${btn.emoji || ""} ${btn.label} (${btn.style})`,
+          inline: true
         });
-      }
-
-      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`panel_add_button_${panelId}`)
-          .setLabel("Adicionar Botão")
-          .setEmoji("➕")
-          .setStyle(ButtonStyle.Success)
-          .setDisabled(buttons.length >= 5),
-        new ButtonBuilder()
-          .setCustomId(`panel_back_config_${panelId}`)
-          .setLabel("Voltar")
-          .setStyle(ButtonStyle.Secondary)
-      );
-
-      await interaction.editReply({ embeds: [embed], components: [row] });
-    } catch (error: any) {
-      discordLogger.error("Error managing panel buttons", { error: error.message });
-      await this.safeReply(interaction, "Erro ao gerenciar botões.");
+      });
     }
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`panel_add_button_${panelId}`)
+        .setLabel("Adicionar Botão")
+        .setEmoji("➕")
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(buttons.length >= 5),
+      new ButtonBuilder()
+        .setCustomId(`panel_back_config_${panelId}`)
+        .setLabel("Voltar")
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+    await interaction.update({ embeds: [embed], components: [row] });
   }
 
   private async handlePanelEditWelcome(interaction: ButtonInteraction) {
@@ -1613,7 +1559,7 @@ class DiscordBot {
             .setPlaceholder("Bem-vindo ao suporte! Um membro da equipe irá atendê-lo em breve.")
         )
       );
-    await interaction.showModal(modal).catch(() => {});
+    await interaction.showModal(modal);
   }
 
   private async handlePanelAddButton(interaction: ButtonInteraction) {
@@ -1648,16 +1594,14 @@ class DiscordBot {
             .setPlaceholder("primary")
         )
       );
-    await interaction.showModal(modal).catch(() => {});
+    await interaction.showModal(modal);
   }
 
   private async handlePanelPreview(interaction: ButtonInteraction) {
-    if (!await this.safeDeferReply(interaction)) return;
-    
     const panelId = interaction.customId.replace("panel_preview_", "");
     const panel = await storage.getPanel(panelId);
     if (!panel) {
-      await interaction.editReply({ content: "Painel não encontrado." }).catch(() => {});
+      await interaction.reply({ content: "Painel não encontrado.", ephemeral: true });
       return;
     }
 
@@ -1699,11 +1643,12 @@ class DiscordBot {
       rows.push(row);
     }
 
-    await interaction.editReply({ 
+    await interaction.reply({ 
       content: "**Pré-visualização do Painel:**", 
       embeds: [embed], 
       components: rows,
-    }).catch(() => {});
+      ephemeral: true 
+    });
   }
 
   private async getOrCreateWebhook(channel: TextChannel): Promise<any> {
@@ -1726,26 +1671,26 @@ class DiscordBot {
   }
 
   private async handlePanelPublish(interaction: ButtonInteraction) {
-    if (!await this.safeDeferUpdate(interaction)) return;
-    
     const panelId = interaction.customId.replace("panel_publish_", "");
     const panel = await storage.getPanel(panelId);
     const guild = interaction.guild;
     
     if (!panel || !guild) {
-      await interaction.editReply({ content: "Painel não encontrado." }).catch(() => {});
+      await interaction.reply({ content: "Painel não encontrado.", ephemeral: true });
       return;
     }
 
+    await interaction.deferUpdate();
+
     const buttons = await storage.getPanelButtons(panelId);
     if (buttons.length === 0) {
-      await interaction.followUp({ content: "Adicione pelo menos um botão antes de publicar.", flags: MessageFlags.Ephemeral }).catch(() => {});
+      await interaction.followUp({ content: "Adicione pelo menos um botão antes de publicar.", ephemeral: true });
       return;
     }
 
     const channel = await guild.channels.fetch(panel.channelId);
     if (!channel || channel.type !== ChannelType.GuildText) {
-      await interaction.followUp({ content: "Canal não encontrado ou inválido.", flags: MessageFlags.Ephemeral }).catch(() => {});
+      await interaction.followUp({ content: "Canal não encontrado ou inválido.", ephemeral: true });
       return;
     }
 
@@ -1797,34 +1742,30 @@ class DiscordBot {
         content: `Painel publicado com sucesso em <#${panel.channelId}>!`,
         embeds: [],
         components: [],
-      }).catch(() => {});
+      });
     } catch (error: any) {
       discordLogger.error("Failed to publish panel via webhook", { error: error.message });
-      await interaction.followUp({ content: `Erro ao publicar painel: ${error.message}`, flags: MessageFlags.Ephemeral }).catch(() => {});
+      await interaction.followUp({ content: `Erro ao publicar painel: ${error.message}`, ephemeral: true });
     }
   }
 
   private async handlePanelDelete(interaction: ButtonInteraction) {
-    if (!await this.safeDeferUpdate(interaction)) return;
-    
     const panelId = interaction.customId.replace("panel_delete_", "");
     await storage.deletePanel(panelId);
-    await interaction.editReply({
+    await interaction.update({
       content: "Configuração do painel cancelada.",
       embeds: [],
       components: [],
-    }).catch(() => {});
+    });
   }
 
   private async createTicketFromWebhookPanel(interaction: ButtonInteraction) {
     const guild = interaction.guild;
     if (!guild) return;
 
-    if (!await this.safeDeferReply(interaction)) return;
-
     const guildConfig = await storage.getGuildConfig(guild.id);
     if (!guildConfig) {
-      await interaction.editReply({ content: "Configuração do servidor não encontrada." }).catch(() => {});
+      await interaction.reply({ content: "Configuração do servidor não encontrada.", ephemeral: true });
       return;
     }
 
@@ -1832,9 +1773,10 @@ class DiscordBot {
     const openTicket = existingTickets.find(t => t.status === "open" || t.status === "waiting");
     
     if (openTicket) {
-      await interaction.editReply({
+      await interaction.reply({
         content: `Você já possui um ticket aberto: <#${openTicket.channelId}>`,
-      }).catch(() => {});
+        ephemeral: true,
+      });
       return;
     }
 
@@ -1844,15 +1786,17 @@ class DiscordBot {
       try {
         const category = await guild.channels.fetch(categoryId);
         if (!category || category.type !== ChannelType.GuildCategory) {
-          await interaction.editReply({
+          await interaction.reply({
             content: "A categoria configurada não é válida. Por favor, contate um administrador.",
-          }).catch(() => {});
+            ephemeral: true,
+          });
           return;
         }
       } catch {
-        await interaction.editReply({
+        await interaction.reply({
           content: "Não foi possível encontrar a categoria. Por favor, contate um administrador.",
-        }).catch(() => {});
+          ephemeral: true,
+        });
         return;
       }
     }
@@ -1919,7 +1863,7 @@ class DiscordBot {
 
     await ticketChannel.send({ content: `<@${interaction.user.id}>`, embeds: [welcomeEmbed], components: [row1, row2] });
 
-    await interaction.editReply({ content: `Seu ticket foi criado: <#${ticketChannel.id}>` }).catch(() => {});
+    await interaction.reply({ content: `Seu ticket foi criado: <#${ticketChannel.id}>`, ephemeral: true });
 
     if (guildConfig.logChannelId) {
       await this.sendLog(guildConfig.logChannelId, {
@@ -1938,21 +1882,19 @@ class DiscordBot {
     const guild = interaction.guild;
     if (!guild) return;
 
-    if (!await this.safeDeferReply(interaction)) return;
-
     const customId = interaction.customId;
     const parts = customId.split("_");
     const panelId = parts[2];
 
     const panel = await storage.getPanel(panelId);
     if (!panel) {
-      await interaction.editReply({ content: "Painel não encontrado." }).catch(() => {});
+      await interaction.reply({ content: "Painel não encontrado.", ephemeral: true });
       return;
     }
 
     const guildConfig = await storage.getGuildConfig(guild.id);
     if (!guildConfig) {
-      await interaction.editReply({ content: "Configuração do servidor não encontrada." }).catch(() => {});
+      await interaction.reply({ content: "Configuração do servidor não encontrada.", ephemeral: true });
       return;
     }
 
@@ -1960,9 +1902,10 @@ class DiscordBot {
     const openTicket = existingTickets.find(t => t.status === "open" || t.status === "waiting");
     
     if (openTicket) {
-      await interaction.editReply({
+      await interaction.reply({
         content: `Você já possui um ticket aberto: <#${openTicket.channelId}>`,
-      }).catch(() => {});
+        ephemeral: true,
+      });
       return;
     }
 
@@ -1972,15 +1915,17 @@ class DiscordBot {
       try {
         const category = await guild.channels.fetch(categoryId);
         if (!category || category.type !== ChannelType.GuildCategory) {
-          await interaction.editReply({
+          await interaction.reply({
             content: "A categoria configurada não é válida. Por favor, contate um administrador.",
-          }).catch(() => {});
+            ephemeral: true,
+          });
           return;
         }
       } catch {
-        await interaction.editReply({
+        await interaction.reply({
           content: "Não foi possível encontrar a categoria. Por favor, contate um administrador.",
-        }).catch(() => {});
+          ephemeral: true,
+        });
         return;
       }
     }
@@ -2047,7 +1992,7 @@ class DiscordBot {
 
     await ticketChannel.send({ content: `<@${interaction.user.id}>`, embeds: [welcomeEmbed], components: [row1, row2] });
 
-    await interaction.editReply({ content: `Seu ticket foi criado: <#${ticketChannel.id}>` }).catch(() => {});
+    await interaction.reply({ content: `Seu ticket foi criado: <#${ticketChannel.id}>`, ephemeral: true });
 
     if (guildConfig.logChannelId) {
       await this.sendLog(guildConfig.logChannelId, {

@@ -89,13 +89,6 @@ The dashboard uses a server-specific key for authentication:
 - `DELETE /api/dashboard/buttons/:id` - Delete button
 
 ## Recent Changes
-- **Interaction Handling Fixes** (Dec 18, 2025):
-  - Fixed "Unknown interaction" errors by deferring all interactions immediately before async operations
-  - Fixed "Interaction has already been acknowledged" errors by using safe defer/reply methods
-  - Replaced deprecated `ephemeral: true` with `flags: MessageFlags.Ephemeral`
-  - Added `.catch(() => {})` to all interaction responses to prevent unhandled errors
-  - Added `safeDeferReply()`, `safeDeferUpdate()`, and improved `safeReply()` helper methods
-  - All button, modal, and select menu handlers now properly defer before doing async work
 - **Webhook Panel Publishing** (Dec 17, 2025):
   - `/painel-ticket` now sends panel messages via webhook with server avatar
   - Webhook named "ServidorWebhook" is automatically created/reused per channel
