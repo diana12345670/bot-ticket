@@ -93,7 +93,7 @@ class DiscordBot {
   }
 
   private setupEventHandlers() {
-    this.client.once("ready", async () => {
+    this.client.once("clientReady", async () => {
       discordLogger.success(`Logged in as ${this.client.user?.tag}`);
       this.isReady = true;
       await this.registerCommands();
@@ -168,15 +168,10 @@ class DiscordBot {
       }
     } catch (error: any) {
       discordLogger.error("Command error", { command: commandName, error: error.message });
-      try {
-        if (interaction.deferred) {
-          await interaction.editReply({ content: "Ocorreu um erro ao executar o comando." });
-        } else if (!interaction.replied) {
-          await interaction.reply({ content: "Ocorreu um erro ao executar o comando.", flags: 64 });
-        }
-      } catch (replyError: any) {
-        discordLogger.error("Failed to reply to error", { error: replyError.message });
-      }
+      const reply = interaction.replied || interaction.deferred
+        ? interaction.followUp.bind(interaction)
+        : interaction.reply.bind(interaction);
+      await reply({ content: "Ocorreu um erro ao executar o comando.", ephemeral: true });
     }
   }
 
@@ -184,7 +179,7 @@ class DiscordBot {
     const guild = interaction.guild;
     if (!guild) return;
 
-    await interaction.deferReply({ flags: 64 });
+    await interaction.deferReply({ ephemeral: true });
 
     let guildConfig = await storage.getGuildConfig(guild.id);
     if (!guildConfig) {
@@ -197,75 +192,30 @@ class DiscordBot {
 
     const embed = new EmbedBuilder()
       .setColor(0x5865F2)
-      .setTitle("Configuracao do Sistema de Tickets")
-      .setDescription("Como deseja configurar o sistema de tickets?")
+      .setTitle("Configuração do Sistema de Tickets")
+      .setDescription("Selecione abaixo o que deseja configurar:")
       .addFields(
-        { name: "Configuracao Atual", value: "\u200b", inline: false },
-        { name: "Cargo Staff", value: guildConfig.staffRoleId ? `<@&${guildConfig.staffRoleId}>` : "Nao configurado", inline: true },
-        { name: "Categoria Tickets", value: guildConfig.ticketCategoryId ? `<#${guildConfig.ticketCategoryId}>` : "Nao configurado", inline: true },
-        { name: "Canal de Logs", value: guildConfig.logChannelId ? `<#${guildConfig.logChannelId}>` : "Nao configurado", inline: true },
-        { name: "Canal de Feedback", value: guildConfig.feedbackChannelId ? `<#${guildConfig.feedbackChannelId}>` : "Nao configurado", inline: true },
-        { name: "IA Habilitada", value: guildConfig.aiEnabled ? "Sim" : "Nao", inline: true },
+        { name: "Cargo Staff", value: guildConfig.staffRoleId ? `<@&${guildConfig.staffRoleId}>` : "Não configurado", inline: true },
+        { name: "Categoria Tickets", value: guildConfig.ticketCategoryId ? `<#${guildConfig.ticketCategoryId}>` : "Não configurado", inline: true },
+        { name: "Canal de Logs", value: guildConfig.logChannelId ? `<#${guildConfig.logChannelId}>` : "Não configurado", inline: true },
+        { name: "Canal de Feedback", value: guildConfig.feedbackChannelId ? `<#${guildConfig.feedbackChannelId}>` : "Não configurado", inline: true },
+        { name: "IA Habilitada", value: guildConfig.aiEnabled ? "Sim" : "Não", inline: true },
       );
 
-    const websiteBtn = new ButtonBuilder()
-      .setCustomId("setup_website")
-      .setLabel("Configurar pelo Site")
-      .setEmoji("🌐")
-      .setStyle(ButtonStyle.Primary);
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId("setup_menu")
+      .setPlaceholder("Selecione o que configurar")
+      .addOptions([
+        { label: "Cargo Staff", value: "staff_role", description: "Cargo que pode ver tickets", emoji: "👥" },
+        { label: "Categoria de Tickets", value: "ticket_category", description: "Categoria onde tickets são criados", emoji: "📁" },
+        { label: "Canal de Logs", value: "log_channel", description: "Canal para logs de tickets", emoji: "📝" },
+        { label: "Canal de Feedback", value: "feedback_channel", description: "Canal para feedbacks", emoji: "⭐" },
+        { label: "Mensagem de Boas-vindas", value: "welcome_message", description: "Mensagem ao abrir ticket", emoji: "👋" },
+      ]);
 
-    const discordBtn = new ButtonBuilder()
-      .setCustomId("setup_discord")
-      .setLabel("Configurar pelo Discord")
-      .setEmoji("💬")
-      .setStyle(ButtonStyle.Secondary);
-
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(websiteBtn, discordBtn);
+    const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
 
     await interaction.editReply({ embeds: [embed], components: [row] });
-  }
-
-  private async handleSetupChoiceButton(interaction: ButtonInteraction) {
-    const guild = interaction.guild;
-    if (!guild) return;
-
-    const guildConfig = await storage.getGuildConfig(guild.id);
-    if (!guildConfig) {
-      await interaction.reply({ content: "Erro: Servidor nao encontrado.", flags: 64 });
-      return;
-    }
-
-    if (interaction.customId === "setup_website") {
-      const dashboardUrl = process.env.RAILWAY_PUBLIC_DOMAIN 
-        ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}/settings`
-        : "https://ticketai.up.railway.app/settings";
-      
-      const embed = new EmbedBuilder()
-        .setColor(0x5865F2)
-        .setTitle("Configurar pelo Site")
-        .setDescription("Use o dashboard web para configurar o sistema de tickets com mais opcoes de personalizacao!")
-        .addFields(
-          { name: "Link do Dashboard", value: dashboardUrl, inline: false },
-          { name: "Chave do Servidor", value: `\`${guildConfig.serverKey}\``, inline: false },
-        )
-        .setFooter({ text: "Use a chave acima para desbloquear o dashboard" });
-
-      await interaction.reply({ embeds: [embed], flags: 64 });
-    } else if (interaction.customId === "setup_discord") {
-      const selectMenu = new StringSelectMenuBuilder()
-        .setCustomId("setup_menu")
-        .setPlaceholder("Selecione o que configurar")
-        .addOptions([
-          { label: "Cargo Staff", value: "staff_role", description: "Cargo que pode ver tickets", emoji: "👥" },
-          { label: "Categoria de Tickets", value: "ticket_category", description: "Categoria onde tickets sao criados", emoji: "📁" },
-          { label: "Canal de Logs", value: "log_channel", description: "Canal para logs de tickets", emoji: "📝" },
-          { label: "Canal de Feedback", value: "feedback_channel", description: "Canal para feedbacks", emoji: "⭐" },
-          { label: "Mensagem de Boas-vindas", value: "welcome_message", description: "Mensagem ao abrir ticket", emoji: "👋" },
-        ]);
-
-      const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
-      await interaction.reply({ content: "Selecione o que deseja configurar:", components: [row], flags: 64 });
-    }
   }
 
   private async handleSelectMenu(interaction: StringSelectMenuInteraction) {
@@ -275,68 +225,152 @@ class DiscordBot {
     const guild = interaction.guild;
     if (!guild) return;
 
-    switch (value) {
-      case "staff_role":
-        const roleSelect = new RoleSelectMenuBuilder()
-          .setCustomId("setup_staff_role_select")
-          .setPlaceholder("Selecione o cargo staff")
-          .setMinValues(1)
-          .setMaxValues(1);
-        
-        const roleRow = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
-        await interaction.reply({
-          content: "👥 Selecione o cargo que poderá ver e responder os tickets:",
-          components: [roleRow],
-          flags: 64,
-        });
-        break;
+    try {
+      switch (value) {
+        case "staff_role":
+          try {
+            // Fetch roles to check if there are any valid roles
+            const roles = await guild.roles.fetch();
+            const validRoles = roles.filter(role => 
+              !role.managed && // Exclude managed roles
+              !role.id.includes("@everyone") && // Exclude @everyone
+              role.id !== guild.id // Exclude @everyone
+            );
+
+            if (validRoles.size === 0) {
+              await interaction.reply({
+                content: "❌ Nenhum cargo disponível para configurar. Por favor, crie um cargo primeiro.",
+                ephemeral: true,
+              });
+              discordLogger.warn("No valid roles available for selection", { guildId: guild.id });
+              break;
+            }
+
+            const roleSelect = new RoleSelectMenuBuilder()
+              .setCustomId("setup_staff_role_select")
+              .setPlaceholder("Selecione o cargo staff")
+              .setMinValues(1)
+              .setMaxValues(1);
+            
+            const roleRow = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
+            await interaction.reply({
+              content: `👥 Selecione o cargo que poderá ver e responder os tickets:\n\n📊 **Cargos disponíveis:** ${validRoles.size}`,
+              components: [roleRow],
+              ephemeral: true,
+            });
+            discordLogger.debug("Role select menu shown", { guildId: guild.id, rolesCount: validRoles.size });
+          } catch (error: any) {
+            discordLogger.error("Failed to fetch roles", { guildId: guild.id, error: error.message });
+            await interaction.reply({
+              content: "❌ Erro ao buscar cargos. Verifique as permissões do bot.",
+              ephemeral: true,
+            });
+          }
+          break;
 
       case "ticket_category":
-        const categorySelect = new ChannelSelectMenuBuilder()
-          .setCustomId("setup_category_select")
-          .setPlaceholder("Selecione a categoria")
-          .setChannelTypes(ChannelType.GuildCategory)
-          .setMinValues(1)
-          .setMaxValues(1);
-        
-        const categoryRow = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(categorySelect);
-        await interaction.reply({
-          content: "📁 Selecione a categoria onde os tickets serão criados:",
-          components: [categoryRow],
-          flags: 64,
-        });
+        try {
+          const categories = await guild.channels.fetchActive({ type: ChannelType.GuildCategory });
+          if (categories.size === 0) {
+            await interaction.reply({
+              content: "❌ Nenhuma categoria disponível. Por favor, crie uma categoria primeiro.",
+              ephemeral: true,
+            });
+            discordLogger.warn("No categories available for selection", { guildId: guild.id });
+            break;
+          }
+
+          const categorySelect = new ChannelSelectMenuBuilder()
+            .setCustomId("setup_category_select")
+            .setPlaceholder("Selecione a categoria")
+            .setChannelTypes(ChannelType.GuildCategory)
+            .setMinValues(1)
+            .setMaxValues(1);
+          
+          const categoryRow = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(categorySelect);
+          await interaction.reply({
+            content: `📁 Selecione a categoria onde os tickets serão criados:\n\n📊 **Categorias disponíveis:** ${categories.size}`,
+            components: [categoryRow],
+            ephemeral: true,
+          });
+          discordLogger.debug("Category select menu shown", { guildId: guild.id, categoriesCount: categories.size });
+        } catch (error: any) {
+          discordLogger.error("Failed to fetch categories", { guildId: guild.id, error: error.message });
+          await interaction.reply({
+            content: "❌ Erro ao buscar categorias. Verifique as permissões do bot.",
+            ephemeral: true,
+          });
+        }
         break;
 
       case "log_channel":
-        const logSelect = new ChannelSelectMenuBuilder()
-          .setCustomId("setup_log_channel_select")
-          .setPlaceholder("Selecione o canal de logs")
-          .setChannelTypes(ChannelType.GuildText)
-          .setMinValues(1)
-          .setMaxValues(1);
-        
-        const logRow = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(logSelect);
-        await interaction.reply({
-          content: "📝 Selecione o canal onde os logs de tickets serão enviados:",
-          components: [logRow],
-          flags: 64,
-        });
+        try {
+          const textChannels = await guild.channels.fetchActive({ type: ChannelType.GuildText });
+          if (textChannels.size === 0) {
+            await interaction.reply({
+              content: "❌ Nenhum canal de texto disponível. Por favor, crie um canal primeiro.",
+              ephemeral: true,
+            });
+            discordLogger.warn("No text channels available for selection", { guildId: guild.id });
+            break;
+          }
+
+          const logSelect = new ChannelSelectMenuBuilder()
+            .setCustomId("setup_log_channel_select")
+            .setPlaceholder("Selecione o canal de logs")
+            .setChannelTypes(ChannelType.GuildText)
+            .setMinValues(1)
+            .setMaxValues(1);
+          
+          const logRow = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(logSelect);
+          await interaction.reply({
+            content: `📝 Selecione o canal onde os logs de tickets serão enviados:\n\n📊 **Canais disponíveis:** ${textChannels.size}`,
+            components: [logRow],
+            ephemeral: true,
+          });
+          discordLogger.debug("Log channel select menu shown", { guildId: guild.id, channelsCount: textChannels.size });
+        } catch (error: any) {
+          discordLogger.error("Failed to fetch text channels", { guildId: guild.id, error: error.message });
+          await interaction.reply({
+            content: "❌ Erro ao buscar canais. Verifique as permissões do bot.",
+            ephemeral: true,
+          });
+        }
         break;
 
       case "feedback_channel":
-        const feedbackSelect = new ChannelSelectMenuBuilder()
-          .setCustomId("setup_feedback_channel_select")
-          .setPlaceholder("Selecione o canal de feedback")
-          .setChannelTypes(ChannelType.GuildText)
-          .setMinValues(1)
-          .setMaxValues(1);
-        
-        const feedbackRow = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(feedbackSelect);
-        await interaction.reply({
-          content: "⭐ Selecione o canal onde os feedbacks serão enviados:",
-          components: [feedbackRow],
-          flags: 64,
-        });
+        try {
+          const textChannels = await guild.channels.fetchActive({ type: ChannelType.GuildText });
+          if (textChannels.size === 0) {
+            await interaction.reply({
+              content: "❌ Nenhum canal de texto disponível. Por favor, crie um canal primeiro.",
+              ephemeral: true,
+            });
+            discordLogger.warn("No text channels available for feedback", { guildId: guild.id });
+            break;
+          }
+
+          const feedbackSelect = new ChannelSelectMenuBuilder()
+            .setCustomId("setup_feedback_channel_select")
+            .setPlaceholder("Selecione o canal de feedback")
+            .setChannelTypes(ChannelType.GuildText)
+            .setMinValues(1)
+            .setMaxValues(1);
+          
+          const feedbackRow = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(feedbackSelect);
+          await interaction.reply({
+            content: `⭐ Selecione o canal onde os feedbacks serão enviados:\n\n📊 **Canais disponíveis:** ${textChannels.size}`,
+            components: [feedbackRow],
+            ephemeral: true,
+          });
+          discordLogger.debug("Feedback channel select menu shown", { guildId: guild.id, channelsCount: textChannels.size });
+        } catch (error: any) {
+          discordLogger.error("Failed to fetch text channels for feedback", { guildId: guild.id, error: error.message });
+          await interaction.reply({
+            content: "❌ Erro ao buscar canais. Verifique as permissões do bot.",
+            ephemeral: true,
+          });
+        }
         break;
 
       case "welcome_message":
@@ -356,6 +390,22 @@ class DiscordBot {
           );
         await interaction.showModal(welcomeModal);
         break;
+
+        default:
+          await interaction.reply({
+            content: "❌ Opção inválida selecionada.",
+            ephemeral: true,
+          });
+          discordLogger.warn("Invalid setup menu option", { guildId: guild.id, value });
+      }
+    } catch (error: any) {
+      discordLogger.error("Select menu interaction error", { guildId: guild.id, error: error.message });
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({
+          content: "❌ Ocorreu um erro. Por favor, tente novamente.",
+          ephemeral: true,
+        });
+      }
     }
   }
 
@@ -366,16 +416,33 @@ class DiscordBot {
     try {
       if (interaction.customId === "setup_staff_role_select") {
         const roleId = interaction.values[0];
+        
+        // Verify the role exists
+        const role = await guild.roles.fetch(roleId).catch(() => null);
+        if (!role) {
+          await interaction.reply({
+            content: "❌ Cargo não encontrado. Por favor, tente novamente.",
+            ephemeral: true,
+          });
+          discordLogger.warn("Role not found during selection", { guildId: guild.id, roleId });
+          return;
+        }
+
         await storage.updateGuildConfig(guild.id, { staffRoleId: roleId });
+        discordLogger.success("Staff role configured", { guildId: guild.id, roleId, roleName: role.name });
+        
         await interaction.update({
-          content: `✅ Cargo Staff configurado: <@&${roleId}>`,
+          content: `✅ Cargo Staff configurado: <@&${roleId}> (**${role.name}**)`,
           components: [],
         });
       }
     } catch (error: any) {
-      discordLogger.error("Role select error", { error: error.message });
+      discordLogger.error("Role select error", { guildId: guild?.id, error: error.message });
       if (!interaction.replied) {
-        await interaction.reply({ content: "Erro ao configurar cargo.", flags: 64 });
+        await interaction.reply({
+          content: "❌ Erro ao configurar cargo. Por favor, tente novamente.",
+          ephemeral: true,
+        });
       }
     }
   }
@@ -386,36 +453,81 @@ class DiscordBot {
 
     try {
       const channelId = interaction.values[0];
+      
+      // Verify the channel exists and bot has access
+      const channel = await guild.channels.fetch(channelId).catch(() => null);
+      if (!channel) {
+        await interaction.reply({
+          content: "❌ Canal não encontrado. Por favor, tente novamente.",
+          ephemeral: true,
+        });
+        discordLogger.warn("Channel not found during selection", { guildId: guild.id, channelId });
+        return;
+      }
 
       switch (interaction.customId) {
         case "setup_category_select":
+          if (channel.type !== ChannelType.GuildCategory) {
+            await interaction.reply({
+              content: "❌ O canal selecionado não é uma categoria. Por favor, selecione uma categoria.",
+              ephemeral: true,
+            });
+            return;
+          }
           await storage.updateGuildConfig(guild.id, { ticketCategoryId: channelId });
+          discordLogger.success("Ticket category configured", { guildId: guild.id, categoryId: channelId, categoryName: channel.name });
           await interaction.update({
-            content: `✅ Categoria de tickets configurada: <#${channelId}>`,
+            content: `✅ Categoria de tickets configurada: <#${channelId}> (**${channel.name}**)`,
             components: [],
           });
           break;
 
         case "setup_log_channel_select":
+          if (channel.type !== ChannelType.GuildText) {
+            await interaction.reply({
+              content: "❌ O canal selecionado não é um canal de texto. Por favor, selecione um canal de texto.",
+              ephemeral: true,
+            });
+            return;
+          }
           await storage.updateGuildConfig(guild.id, { logChannelId: channelId });
+          discordLogger.success("Log channel configured", { guildId: guild.id, logChannelId: channelId, channelName: channel.name });
           await interaction.update({
-            content: `✅ Canal de logs configurado: <#${channelId}>`,
+            content: `✅ Canal de logs configurado: <#${channelId}> (**${channel.name}**)`,
             components: [],
           });
           break;
 
         case "setup_feedback_channel_select":
+          if (channel.type !== ChannelType.GuildText) {
+            await interaction.reply({
+              content: "❌ O canal selecionado não é um canal de texto. Por favor, selecione um canal de texto.",
+              ephemeral: true,
+            });
+            return;
+          }
           await storage.updateGuildConfig(guild.id, { feedbackChannelId: channelId });
+          discordLogger.success("Feedback channel configured", { guildId: guild.id, feedbackChannelId: channelId, channelName: channel.name });
           await interaction.update({
-            content: `✅ Canal de feedback configurado: <#${channelId}>`,
+            content: `✅ Canal de feedback configurado: <#${channelId}> (**${channel.name}**)`,
             components: [],
           });
           break;
+
+        default:
+          await interaction.reply({
+            content: "❌ Opção de canal inválida.",
+            ephemeral: true,
+          });
+          discordLogger.warn("Invalid channel select option", { guildId: guild.id, customId: interaction.customId });
       }
     } catch (error: any) {
-      discordLogger.error("Channel select error", { error: error.message });
+      discordLogger.error("Channel select error", { guildId: guild?.id, error: error.message });
       if (!interaction.replied) {
-        await interaction.reply({ content: "Erro ao configurar canal.", flags: 64 });
+        await interaction.reply({
+          content: "❌ Erro ao configurar canal. Por favor, tente novamente.",
+          ephemeral: true,
+        });
       }
     }
   }
@@ -424,7 +536,7 @@ class DiscordBot {
     const guild = interaction.guild;
     if (!guild) return;
 
-    await interaction.deferReply({ flags: 64 });
+    await interaction.deferReply({ ephemeral: true });
 
     const channel = interaction.options.getChannel("canal");
     if (!channel) {
@@ -519,7 +631,7 @@ class DiscordBot {
     const guild = interaction.guild;
     if (!guild) return;
 
-    await interaction.deferReply({ flags: 64 });
+    await interaction.deferReply({ ephemeral: true });
 
     const ativar = interaction.options.getBoolean("ativar", true);
     const prompt = interaction.options.getString("prompt");
@@ -571,14 +683,14 @@ class DiscordBot {
         .setStyle(ButtonStyle.Secondary)
     );
 
-    await interaction.reply({ embeds: [confirmEmbed], components: [row], flags: 64 });
+    await interaction.reply({ embeds: [confirmEmbed], components: [row], ephemeral: true });
   }
 
   private async handleKeyCommand(interaction: ChatInputCommandInteraction) {
     const guild = interaction.guild;
     if (!guild) return;
 
-    await interaction.deferReply({ flags: 64 });
+    await interaction.deferReply({ ephemeral: true });
 
     let guildConfig = await storage.getGuildConfig(guild.id);
     if (!guildConfig) {
@@ -613,16 +725,39 @@ class DiscordBot {
   }
 
   private async syncGuilds() {
-    for (const [guildId, guild] of this.client.guilds.cache) {
-      const existing = await storage.getGuildConfig(guildId);
-      if (!existing) {
-        await this.registerGuild(guild);
-      } else {
-        await storage.updateGuildConfig(guildId, {
-          guildName: guild.name,
-          guildIcon: guild.icon || undefined,
-        });
+    try {
+      let synced = 0;
+      let failed = 0;
+
+      for (const [guildId, guild] of this.client.guilds.cache) {
+        try {
+          const existing = await storage.getGuildConfig(guildId);
+          if (!existing) {
+            await this.registerGuild(guild);
+          } else {
+            await storage.updateGuildConfig(guildId, {
+              guildName: guild.name,
+              guildIcon: guild.icon || undefined,
+            });
+          }
+          synced++;
+        } catch (error: any) {
+          failed++;
+          discordLogger.error("Error syncing guild", {
+            guildId,
+            guildName: guild.name,
+            error: error.message,
+          });
+        }
       }
+
+      discordLogger.success("Guild sync completed", {
+        total: this.client.guilds.cache.size,
+        synced,
+        failed,
+      });
+    } catch (error: any) {
+      discordLogger.error("Guild sync operation failed", { error: error.message });
     }
   }
 
@@ -701,15 +836,13 @@ class DiscordBot {
             .setFooter({ text: "Esta mensagem só é visível para você" });
           await interaction.editReply({ embeds: [embed], components: [] });
         }
-      } else if (customId === "setup_website" || customId === "setup_discord") {
-        await this.handleSetupChoiceButton(interaction);
       }
     } catch (error: any) {
       discordLogger.error("Button interaction failed", { error: error.message });
       if (!interaction.replied && !interaction.deferred) {
         await interaction.reply({
           content: "Ocorreu um erro ao processar sua ação.",
-          flags: 64,
+          ephemeral: true,
         });
       }
     }
@@ -728,7 +861,7 @@ class DiscordBot {
       if (interaction.customId === "setup_welcome") {
         const welcomeMessage = interaction.fields.getTextInputValue("message");
         await storage.updateGuildConfig(guild.id, { welcomeMessage: welcomeMessage });
-        await interaction.reply({ content: "Mensagem de boas-vindas configurada!", flags: 64 });
+        await interaction.reply({ content: "Mensagem de boas-vindas configurada!", ephemeral: true });
         return;
       }
 
@@ -737,13 +870,13 @@ class DiscordBot {
         const title = interaction.fields.getTextInputValue("title");
         const description = interaction.fields.getTextInputValue("description");
         await storage.updatePanel(panelId, { title, description });
-        await interaction.reply({ content: "Título e descrição atualizados!", flags: 64 });
+        await interaction.reply({ content: "Título e descrição atualizados!", ephemeral: true });
       } else if (interaction.customId.startsWith("modal_panel_color_")) {
         const panelId = interaction.customId.replace("modal_panel_color_", "");
         let color = interaction.fields.getTextInputValue("color");
         if (!color.startsWith("#")) color = "#" + color;
         await storage.updatePanel(panelId, { embedColor: color });
-        await interaction.reply({ content: `Cor atualizada para ${color}!`, flags: 64 });
+        await interaction.reply({ content: `Cor atualizada para ${color}!`, ephemeral: true });
       } else if (interaction.customId.startsWith("modal_panel_category_")) {
         const panelId = interaction.customId.replace("modal_panel_category_", "");
         const categoryId = interaction.fields.getTextInputValue("category_id");
@@ -751,19 +884,19 @@ class DiscordBot {
         try {
           const category = await guild.channels.fetch(categoryId);
           if (!category || category.type !== ChannelType.GuildCategory) {
-            await interaction.reply({ content: "ID inválido. Certifique-se de que é uma categoria.", flags: 64 });
+            await interaction.reply({ content: "ID inválido. Certifique-se de que é uma categoria.", ephemeral: true });
             return;
           }
           await storage.updatePanel(panelId, { categoryId });
-          await interaction.reply({ content: `Categoria configurada: <#${categoryId}>`, flags: 64 });
+          await interaction.reply({ content: `Categoria configurada: <#${categoryId}>`, ephemeral: true });
         } catch {
-          await interaction.reply({ content: "Categoria não encontrada.", flags: 64 });
+          await interaction.reply({ content: "Categoria não encontrada.", ephemeral: true });
         }
       } else if (interaction.customId.startsWith("modal_panel_welcome_")) {
         const panelId = interaction.customId.replace("modal_panel_welcome_", "");
         const welcome = interaction.fields.getTextInputValue("welcome");
         await storage.updatePanel(panelId, { welcomeMessage: welcome });
-        await interaction.reply({ content: "Mensagem de boas-vindas atualizada!", flags: 64 });
+        await interaction.reply({ content: "Mensagem de boas-vindas atualizada!", ephemeral: true });
       } else if (interaction.customId.startsWith("modal_panel_add_button_")) {
         const panelId = interaction.customId.replace("modal_panel_add_button_", "");
         const label = interaction.fields.getTextInputValue("label");
@@ -783,12 +916,12 @@ class DiscordBot {
           order: existingButtons.length,
         });
 
-        await interaction.reply({ content: `Botão "${label}" adicionado!`, flags: 64 });
+        await interaction.reply({ content: `Botão "${label}" adicionado!`, ephemeral: true });
       }
     } catch (error: any) {
       discordLogger.error("Modal submit error", { error: error.message });
       if (!interaction.replied) {
-        await interaction.reply({ content: "Erro ao salvar configuração.", flags: 64 });
+        await interaction.reply({ content: "Erro ao salvar configuração.", ephemeral: true });
       }
     }
   }
@@ -797,12 +930,11 @@ class DiscordBot {
     const guild = interaction.guild;
     if (!guild) return;
 
-    await interaction.deferReply({ flags: 64 });
-
     const guildConfig = await storage.getGuildConfig(guild.id);
     if (!guildConfig) {
-      await interaction.editReply({
+      await interaction.reply({
         content: "Configuração do servidor não encontrada.",
+        ephemeral: true,
       });
       return;
     }
@@ -811,8 +943,9 @@ class DiscordBot {
     const openTicket = existingTickets.find(t => t.status === "open" || t.status === "waiting");
     
     if (openTicket) {
-      await interaction.editReply({
+      await interaction.reply({
         content: `Você já possui um ticket aberto: <#${openTicket.channelId}>`,
+        ephemeral: true,
       });
       return;
     }
@@ -822,14 +955,16 @@ class DiscordBot {
       try {
         const category = await guild.channels.fetch(categoryId);
         if (!category || category.type !== ChannelType.GuildCategory) {
-          await interaction.editReply({
+          await interaction.reply({
             content: "A categoria configurada não é válida. Por favor, contate um administrador para corrigir.",
+            ephemeral: true,
           });
           return;
         }
       } catch {
-        await interaction.editReply({
+        await interaction.reply({
           content: "Não foi possível encontrar a categoria de tickets. Por favor, contate um administrador.",
+          ephemeral: true,
         });
         return;
       }
@@ -929,8 +1064,9 @@ class DiscordBot {
       components: [row1, row2],
     });
 
-    await interaction.editReply({
+    await interaction.reply({
       content: `Seu ticket foi criado: <#${ticketChannel.id}>`,
+      ephemeral: true,
     });
 
     if (guildConfig.logChannelId) {
@@ -950,7 +1086,7 @@ class DiscordBot {
     if (!ticket) {
       await interaction.reply({
         content: "Este não é um canal de ticket válido.",
-        flags: 64,
+        ephemeral: true,
       });
       return;
     }
@@ -1003,7 +1139,7 @@ class DiscordBot {
     if (!ticket) {
       await interaction.reply({
         content: "Este não é um canal de ticket válido.",
-        flags: 64,
+        ephemeral: true,
       });
       return;
     }
@@ -1024,7 +1160,7 @@ class DiscordBot {
     if (!ticket) {
       await interaction.reply({
         content: "Este não é um canal de ticket válido.",
-        flags: 64,
+        ephemeral: true,
       });
       return;
     }
@@ -1043,12 +1179,12 @@ class DiscordBot {
       await user.send({ embeds: [dmEmbed] });
       await interaction.reply({
         content: "Notificação enviada para a DM do usuário!",
-        flags: 64,
+        ephemeral: true,
       });
     } catch (error) {
       await interaction.reply({
         content: "Não foi possível enviar DM para o usuário. Ele pode ter as DMs fechadas.",
-        flags: 64,
+        ephemeral: true,
       });
     }
   }
@@ -1058,7 +1194,7 @@ class DiscordBot {
     if (!ticket) {
       await interaction.reply({
         content: "Este não é um canal de ticket válido.",
-        flags: 64,
+        ephemeral: true,
       });
       return;
     }
@@ -1067,7 +1203,7 @@ class DiscordBot {
     if (!guildConfig?.aiEnabled) {
       await interaction.reply({
         content: "A funcionalidade de IA não está habilitada neste servidor.",
-        flags: 64,
+        ephemeral: true,
       });
       return;
     }
@@ -1089,7 +1225,7 @@ class DiscordBot {
     if (!ticket) {
       await interaction.reply({
         content: "Este não é um canal de ticket válido.",
-        flags: 64,
+        ephemeral: true,
       });
       return;
     }
@@ -1176,7 +1312,7 @@ class DiscordBot {
     if (!ticket) {
       await interaction.reply({
         content: "Ticket não encontrado.",
-        flags: 64,
+        ephemeral: true,
       });
       return;
     }
@@ -1185,7 +1321,7 @@ class DiscordBot {
     if (existingFeedback) {
       await interaction.reply({
         content: "Você já avaliou este ticket!",
-        flags: 64,
+        ephemeral: true,
       });
       return;
     }
@@ -1217,7 +1353,7 @@ class DiscordBot {
     if (!ticket) {
       await interaction.reply({
         content: "Ticket não encontrado.",
-        flags: 64,
+        ephemeral: true,
       });
       return;
     }
@@ -1579,7 +1715,7 @@ class DiscordBot {
     const panelId = interaction.customId.replace("panel_preview_", "");
     const panel = await storage.getPanel(panelId);
     if (!panel) {
-      await interaction.reply({ content: "Painel não encontrado.", flags: 64 });
+      await interaction.reply({ content: "Painel não encontrado.", ephemeral: true });
       return;
     }
 
@@ -1625,7 +1761,7 @@ class DiscordBot {
       content: "**Pré-visualização do Painel:**", 
       embeds: [embed], 
       components: rows,
-      flags: 64 
+      ephemeral: true 
     });
   }
 
@@ -1654,7 +1790,7 @@ class DiscordBot {
     const guild = interaction.guild;
     
     if (!panel || !guild) {
-      await interaction.reply({ content: "Painel não encontrado.", flags: 64 });
+      await interaction.reply({ content: "Painel não encontrado.", ephemeral: true });
       return;
     }
 
@@ -1662,13 +1798,13 @@ class DiscordBot {
 
     const buttons = await storage.getPanelButtons(panelId);
     if (buttons.length === 0) {
-      await interaction.followUp({ content: "Adicione pelo menos um botão antes de publicar.", flags: 64 });
+      await interaction.followUp({ content: "Adicione pelo menos um botão antes de publicar.", ephemeral: true });
       return;
     }
 
     const channel = await guild.channels.fetch(panel.channelId);
     if (!channel || channel.type !== ChannelType.GuildText) {
-      await interaction.followUp({ content: "Canal não encontrado ou inválido.", flags: 64 });
+      await interaction.followUp({ content: "Canal não encontrado ou inválido.", ephemeral: true });
       return;
     }
 
@@ -1723,7 +1859,7 @@ class DiscordBot {
       });
     } catch (error: any) {
       discordLogger.error("Failed to publish panel via webhook", { error: error.message });
-      await interaction.followUp({ content: `Erro ao publicar painel: ${error.message}`, flags: 64 });
+      await interaction.followUp({ content: `Erro ao publicar painel: ${error.message}`, ephemeral: true });
     }
   }
 
@@ -1741,11 +1877,9 @@ class DiscordBot {
     const guild = interaction.guild;
     if (!guild) return;
 
-    await interaction.deferReply({ flags: 64 });
-
     const guildConfig = await storage.getGuildConfig(guild.id);
     if (!guildConfig) {
-      await interaction.editReply({ content: "Configuração do servidor não encontrada." });
+      await interaction.reply({ content: "Configuração do servidor não encontrada.", ephemeral: true });
       return;
     }
 
@@ -1753,8 +1887,9 @@ class DiscordBot {
     const openTicket = existingTickets.find(t => t.status === "open" || t.status === "waiting");
     
     if (openTicket) {
-      await interaction.editReply({
+      await interaction.reply({
         content: `Você já possui um ticket aberto: <#${openTicket.channelId}>`,
+        ephemeral: true,
       });
       return;
     }
@@ -1765,14 +1900,16 @@ class DiscordBot {
       try {
         const category = await guild.channels.fetch(categoryId);
         if (!category || category.type !== ChannelType.GuildCategory) {
-          await interaction.editReply({
+          await interaction.reply({
             content: "A categoria configurada não é válida. Por favor, contate um administrador.",
+            ephemeral: true,
           });
           return;
         }
       } catch {
-        await interaction.editReply({
+        await interaction.reply({
           content: "Não foi possível encontrar a categoria. Por favor, contate um administrador.",
+          ephemeral: true,
         });
         return;
       }
@@ -1840,7 +1977,7 @@ class DiscordBot {
 
     await ticketChannel.send({ content: `<@${interaction.user.id}>`, embeds: [welcomeEmbed], components: [row1, row2] });
 
-    await interaction.editReply({ content: `Seu ticket foi criado: <#${ticketChannel.id}>` });
+    await interaction.reply({ content: `Seu ticket foi criado: <#${ticketChannel.id}>`, ephemeral: true });
 
     if (guildConfig.logChannelId) {
       await this.sendLog(guildConfig.logChannelId, {
@@ -1859,21 +1996,19 @@ class DiscordBot {
     const guild = interaction.guild;
     if (!guild) return;
 
-    await interaction.deferReply({ flags: 64 });
-
     const customId = interaction.customId;
     const parts = customId.split("_");
     const panelId = parts[2];
 
     const panel = await storage.getPanel(panelId);
     if (!panel) {
-      await interaction.editReply({ content: "Painel não encontrado." });
+      await interaction.reply({ content: "Painel não encontrado.", ephemeral: true });
       return;
     }
 
     const guildConfig = await storage.getGuildConfig(guild.id);
     if (!guildConfig) {
-      await interaction.editReply({ content: "Configuração do servidor não encontrada." });
+      await interaction.reply({ content: "Configuração do servidor não encontrada.", ephemeral: true });
       return;
     }
 
@@ -1881,8 +2016,9 @@ class DiscordBot {
     const openTicket = existingTickets.find(t => t.status === "open" || t.status === "waiting");
     
     if (openTicket) {
-      await interaction.editReply({
+      await interaction.reply({
         content: `Você já possui um ticket aberto: <#${openTicket.channelId}>`,
+        ephemeral: true,
       });
       return;
     }
@@ -1893,14 +2029,16 @@ class DiscordBot {
       try {
         const category = await guild.channels.fetch(categoryId);
         if (!category || category.type !== ChannelType.GuildCategory) {
-          await interaction.editReply({
+          await interaction.reply({
             content: "A categoria configurada não é válida. Por favor, contate um administrador.",
+            ephemeral: true,
           });
           return;
         }
       } catch {
-        await interaction.editReply({
+        await interaction.reply({
           content: "Não foi possível encontrar a categoria. Por favor, contate um administrador.",
+          ephemeral: true,
         });
         return;
       }
@@ -1968,7 +2106,7 @@ class DiscordBot {
 
     await ticketChannel.send({ content: `<@${interaction.user.id}>`, embeds: [welcomeEmbed], components: [row1, row2] });
 
-    await interaction.editReply({ content: `Seu ticket foi criado: <#${ticketChannel.id}>` });
+    await interaction.reply({ content: `Seu ticket foi criado: <#${ticketChannel.id}>`, ephemeral: true });
 
     if (guildConfig.logChannelId) {
       await this.sendLog(guildConfig.logChannelId, {
@@ -1990,68 +2128,6 @@ class DiscordBot {
       users: this.client.users.cache.size,
       ping: this.client.ws.ping,
     };
-  }
-
-  async getGuildChannels(guildId: string) {
-    const guild = this.client.guilds.cache.get(guildId);
-    if (!guild) return null;
-
-    const channels = guild.channels.cache
-      .filter(ch => ch.type === ChannelType.GuildText)
-      .map(ch => ({
-        id: ch.id,
-        name: ch.name,
-        type: "text",
-      }));
-
-    return channels;
-  }
-
-  async getGuildCategories(guildId: string) {
-    const guild = this.client.guilds.cache.get(guildId);
-    if (!guild) return null;
-
-    const categories = guild.channels.cache
-      .filter(ch => ch.type === ChannelType.GuildCategory)
-      .map(ch => ({
-        id: ch.id,
-        name: ch.name,
-        type: "category",
-      }));
-
-    return categories;
-  }
-
-  async getGuildRoles(guildId: string) {
-    const guild = this.client.guilds.cache.get(guildId);
-    if (!guild) return null;
-
-    const roles = guild.roles.cache
-      .filter(role => !role.managed && role.name !== "@everyone")
-      .sort((a, b) => b.position - a.position)
-      .map(role => ({
-        id: role.id,
-        name: role.name,
-        color: role.hexColor,
-        position: role.position,
-      }));
-
-    return roles;
-  }
-
-  async getGuildEmojis(guildId: string) {
-    const guild = this.client.guilds.cache.get(guildId);
-    if (!guild) return null;
-
-    const emojis = guild.emojis.cache.map(emoji => ({
-      id: emoji.id,
-      name: emoji.name,
-      animated: emoji.animated,
-      url: emoji.url,
-      identifier: emoji.identifier,
-    }));
-
-    return emojis;
   }
 
   async start() {

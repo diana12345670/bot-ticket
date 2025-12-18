@@ -12,9 +12,31 @@ import { db, hasDatabase } from "./db";
 import { eq, desc, and, sql, count, avg } from "drizzle-orm";
 import crypto from "crypto";
 import { JsonStorage } from "./json-storage";
+import { dbLogger } from "./logger";
+import { DatabaseError } from "./error-handler";
 
 function generateServerKey(): string {
   return crypto.randomBytes(32).toString("hex").slice(0, 32);
+}
+
+// Helper function for safe database operations with error handling
+async function withErrorHandler<T>(
+  operation: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (error: any) {
+    dbLogger.error(`${operation} failed`, {
+      error: error.message,
+      code: error.code,
+      detail: error.detail,
+    });
+    throw new DatabaseError(`${operation} failed: ${error.message}`, {
+      code: error.code,
+      operation,
+    });
+  }
 }
 
 export interface IStorage {
@@ -68,8 +90,10 @@ export interface IStorage {
 export class DatabaseStorage implements IStorage {
   // Guild Config Methods
   async getGuildConfig(guildId: string): Promise<GuildConfig | undefined> {
-    const [config] = await db!.select().from(guildConfigs).where(eq(guildConfigs.guildId, guildId));
-    return config || undefined;
+    return withErrorHandler("getGuildConfig", async () => {
+      const [config] = await db!.select().from(guildConfigs).where(eq(guildConfigs.guildId, guildId));
+      return config || undefined;
+    });
   }
 
   async getGuildConfigByKey(serverKey: string): Promise<GuildConfig | undefined> {
@@ -221,57 +245,96 @@ export class DatabaseStorage implements IStorage {
 
   // Panel Methods
   async getPanel(id: string): Promise<TicketPanel | undefined> {
-    const [panel] = await db!.select().from(ticketPanels).where(eq(ticketPanels.id, id));
-    return panel || undefined;
+    return withErrorHandler("getPanel", async () => {
+      const [panel] = await db!.select().from(ticketPanels).where(eq(ticketPanels.id, id));
+      return panel || undefined;
+    });
   }
 
   async getPanelsByGuild(guildId: string): Promise<TicketPanel[]> {
-    return await db!.select().from(ticketPanels).where(eq(ticketPanels.guildId, guildId)).orderBy(desc(ticketPanels.createdAt));
+    return withErrorHandler("getPanelsByGuild", async () => {
+      return await db!.select().from(ticketPanels).where(eq(ticketPanels.guildId, guildId)).orderBy(desc(ticketPanels.createdAt));
+    });
   }
 
   async getPanelByMessage(messageId: string): Promise<TicketPanel | undefined> {
-    const [panel] = await db!.select().from(ticketPanels).where(eq(ticketPanels.messageId, messageId));
-    return panel || undefined;
+    return withErrorHandler("getPanelByMessage", async () => {
+      const [panel] = await db!.select().from(ticketPanels).where(eq(ticketPanels.messageId, messageId));
+      return panel || undefined;
+    });
   }
 
   async createPanel(panel: InsertTicketPanel): Promise<TicketPanel> {
-    const [newPanel] = await db!.insert(ticketPanels).values(panel).returning();
-    return newPanel;
+    return withErrorHandler("createPanel", async () => {
+      const [newPanel] = await db!.insert(ticketPanels).values(panel).returning();
+      dbLogger.success("Panel created", { panelId: newPanel.id, guildId: panel.guildId });
+      return newPanel;
+    });
   }
 
   async updatePanel(id: string, panel: Partial<InsertTicketPanel>): Promise<TicketPanel | undefined> {
-    const [updated] = await db!.update(ticketPanels).set(panel).where(eq(ticketPanels.id, id)).returning();
-    return updated || undefined;
+    return withErrorHandler("updatePanel", async () => {
+      const [updated] = await db!.update(ticketPanels).set(panel).where(eq(ticketPanels.id, id)).returning();
+      if (updated) {
+        dbLogger.success("Panel updated", { panelId: id });
+      }
+      return updated || undefined;
+    });
   }
 
   async deletePanel(id: string): Promise<boolean> {
-    const result = await db!.delete(ticketPanels).where(eq(ticketPanels.id, id));
-    return result.rowCount !== null && result.rowCount > 0;
+    return withErrorHandler("deletePanel", async () => {
+      const result = await db!.delete(ticketPanels).where(eq(ticketPanels.id, id));
+      if (result.rowCount && result.rowCount > 0) {
+        dbLogger.success("Panel deleted", { panelId: id });
+      }
+      return result.rowCount !== null && result.rowCount > 0;
+    });
   }
 
   // Panel Button Methods
   async getPanelButtons(panelId: string): Promise<PanelButton[]> {
-    return await db!.select().from(panelButtons).where(eq(panelButtons.panelId, panelId)).orderBy(panelButtons.order);
+    return withErrorHandler("getPanelButtons", async () => {
+      return await db!.select().from(panelButtons).where(eq(panelButtons.panelId, panelId)).orderBy(panelButtons.order);
+    });
   }
 
   async createPanelButton(button: InsertPanelButton): Promise<PanelButton> {
-    const [newButton] = await db!.insert(panelButtons).values(button).returning();
-    return newButton;
+    return withErrorHandler("createPanelButton", async () => {
+      const [newButton] = await db!.insert(panelButtons).values(button).returning();
+      dbLogger.success("Panel button created", { buttonId: newButton.id });
+      return newButton;
+    });
   }
 
   async updatePanelButton(id: string, button: Partial<InsertPanelButton>): Promise<PanelButton | undefined> {
-    const [updated] = await db!.update(panelButtons).set(button).where(eq(panelButtons.id, id)).returning();
-    return updated || undefined;
+    return withErrorHandler("updatePanelButton", async () => {
+      const [updated] = await db!.update(panelButtons).set(button).where(eq(panelButtons.id, id)).returning();
+      if (updated) {
+        dbLogger.success("Panel button updated", { buttonId: id });
+      }
+      return updated || undefined;
+    });
   }
 
   async deletePanelButton(id: string): Promise<boolean> {
-    const result = await db!.delete(panelButtons).where(eq(panelButtons.id, id));
-    return result.rowCount !== null && result.rowCount > 0;
+    return withErrorHandler("deletePanelButton", async () => {
+      const result = await db!.delete(panelButtons).where(eq(panelButtons.id, id));
+      if (result.rowCount && result.rowCount > 0) {
+        dbLogger.success("Panel button deleted", { buttonId: id });
+      }
+      return result.rowCount !== null && result.rowCount > 0;
+    });
   }
 
   async deletePanelButtons(panelId: string): Promise<boolean> {
-    const result = await db!.delete(panelButtons).where(eq(panelButtons.panelId, panelId));
-    return result.rowCount !== null && result.rowCount > 0;
+    return withErrorHandler("deletePanelButtons", async () => {
+      const result = await db!.delete(panelButtons).where(eq(panelButtons.panelId, panelId));
+      if (result.rowCount && result.rowCount > 0) {
+        dbLogger.success("Panel buttons deleted", { panelId, count: result.rowCount });
+      }
+      return result.rowCount !== null && result.rowCount > 0;
+    });
   }
 }
 
