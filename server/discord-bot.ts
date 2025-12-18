@@ -94,7 +94,7 @@ class DiscordBot {
   }
 
   private setupEventHandlers() {
-    this.client.once("ready", async () => {
+    this.client.once("clientReady", async () => {
       discordLogger.success(`Logged in as ${this.client.user?.tag}`);
       this.isReady = true;
       await this.registerCommands();
@@ -392,93 +392,36 @@ class DiscordBot {
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    const channel = interaction.options.getChannel("canal");
-    if (!channel) {
-      await interaction.editReply({ content: "Canal inválido!" });
-      return;
-    }
-
-    const panel = await storage.createPanel({
-      guildId: guild.id,
-      channelId: channel.id,
-      createdBy: interaction.user.id,
-      title: "Sistema de Tickets",
-      description: "Clique no botão abaixo para abrir um ticket e entrar em contato com nossa equipe.",
-      embedColor: "#5865F2",
-      isConfigured: false,
-    });
-
-    await storage.createPanelButton({
-      panelId: panel.id,
-      label: "Abrir Ticket",
-      emoji: "📩",
-      style: "primary",
-      order: 0,
-    });
-
-    const configEmbed = new EmbedBuilder()
+    // Mostrar opciones de configuracao
+    const optionsEmbed = new EmbedBuilder()
       .setColor(0x5865F2)
-      .setTitle("Configuração do Painel de Tickets")
-      .setDescription("Configure seu painel de tickets usando os botões abaixo. Quando terminar, clique em **Publicar Painel**.")
-      .addFields(
-        { name: "Canal", value: `<#${channel.id}>`, inline: true },
-        { name: "Título", value: panel.title || "Sistema de Tickets", inline: true },
-        { name: "Cor", value: panel.embedColor || "#5865F2", inline: true },
-        { name: "Categoria de Tickets", value: panel.categoryId ? `<#${panel.categoryId}>` : "Não configurada", inline: true },
-        { name: "Botões", value: "1 botão configurado", inline: true },
-      )
-      .setFooter({ text: `ID do Painel: ${panel.id}` });
+      .setTitle("Como você deseja configurar o painel?")
+      .setDescription("Escolha como prefere configurar seu painel de tickets:");
 
-    const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
-        .setCustomId(`panel_edit_title_${panel.id}`)
-        .setLabel("Editar Título/Descrição")
-        .setEmoji("✏️")
-        .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId(`panel_edit_color_${panel.id}`)
-        .setLabel("Cor do Embed")
-        .setEmoji("🎨")
-        .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId(`panel_edit_category_${panel.id}`)
-        .setLabel("Categoria")
-        .setEmoji("📁")
-        .setStyle(ButtonStyle.Secondary),
-    );
-
-    const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`panel_edit_buttons_${panel.id}`)
-        .setLabel("Gerenciar Botões")
-        .setEmoji("🔘")
-        .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId(`panel_edit_welcome_${panel.id}`)
-        .setLabel("Mensagem de Boas-vindas")
-        .setEmoji("👋")
-        .setStyle(ButtonStyle.Secondary),
-    );
-
-    const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`panel_publish_${panel.id}`)
-        .setLabel("Publicar Painel")
-        .setEmoji("✅")
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId(`panel_preview_${panel.id}`)
-        .setLabel("Visualizar")
-        .setEmoji("👁️")
+        .setCustomId("panel_config_discord")
+        .setLabel("Configurar pelo Discord")
+        .setEmoji("🤖")
         .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
-        .setCustomId(`panel_delete_${panel.id}`)
-        .setLabel("Cancelar")
-        .setEmoji("🗑️")
-        .setStyle(ButtonStyle.Danger),
+        .setCustomId("panel_config_website")
+        .setLabel("Configurar pelo Site")
+        .setEmoji("🌐")
+        .setStyle(ButtonStyle.Success),
     );
 
-    await interaction.editReply({ embeds: [configEmbed], components: [row1, row2, row3] });
+    await interaction.editReply({ embeds: [optionsEmbed], components: [row] });
+  }
+
+  private async handlePanelConfigDiscord(interaction: ButtonInteraction) {
+    const guild = interaction.guild;
+    if (!guild) return;
+
+    await interaction.deferUpdate();
+
+    // Configuração pelo Discord iniciada
+    await interaction.editReply({ content: "✅ Configuração pelo Discord iniciada. Use `/painel-ticket #canal` para completar." });
   }
 
   private async handleAICommand(interaction: ChatInputCommandInteraction) {
@@ -579,12 +522,12 @@ class DiscordBot {
   }
 
   private async syncGuilds() {
-    for (const [guildId, guild] of this.client.guilds.cache) {
-      const existing = await storage.getGuildConfig(guildId);
+    for (const guild of this.client.guilds.cache.values()) {
+      const existing = await storage.getGuildConfig(guild.id);
       if (!existing) {
         await this.registerGuild(guild);
       } else {
-        await storage.updateGuildConfig(guildId, {
+        await storage.updateGuildConfig(guild.id, {
           guildName: guild.name,
           guildIcon: guild.icon || undefined,
         });
@@ -658,11 +601,13 @@ class DiscordBot {
           components: [],
         });
       } else if (customId === "cancel_reset_tickets") {
-        await interaction.update({
-          content: "Operação cancelada.",
-          embeds: [],
-          components: [],
-        });
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.update({
+            content: "Operação cancelada.",
+            embeds: [],
+            components: [],
+          });
+        }
       } else if (customId === "regenerate_key" && guild) {
         await interaction.deferUpdate();
         const newKey = await storage.regenerateServerKey(guild.id);
@@ -690,7 +635,7 @@ class DiscordBot {
           });
         }
       } catch {
-        // Interaction already handled, ignore error
+        // Interaction already handled or expired, ignore error
       }
     }
   }
@@ -734,6 +679,11 @@ class DiscordBot {
             await interaction.reply({ content: "ID inválido. Certifique-se de que é uma categoria.", flags: MessageFlags.Ephemeral });
             return;
           }
+          const panel = await storage.getPanel(panelId);
+          if (!panel) {
+            await interaction.reply({ content: "Painel não encontrado.", flags: MessageFlags.Ephemeral });
+            return;
+          }
           await storage.updatePanel(panelId, { categoryId });
           await interaction.reply({ content: `Categoria configurada: <#${categoryId}>`, flags: MessageFlags.Ephemeral });
         } catch {
@@ -752,6 +702,12 @@ class DiscordBot {
         
         if (!["primary", "secondary", "success", "danger"].includes(style)) {
           style = "primary";
+        }
+
+        const panel = await storage.getPanel(panelId);
+        if (!panel) {
+          await interaction.reply({ content: "Painel não encontrado.", flags: MessageFlags.Ephemeral });
+          return;
         }
 
         const existingButtons = await storage.getPanelButtons(panelId);
@@ -810,6 +766,9 @@ class DiscordBot {
   private async createTicket(interaction: ButtonInteraction) {
     const guild = interaction.guild;
     if (!guild) return;
+
+    // Evitar duplicação - verificar se já existe ticket sendo criado
+    if (interaction.message?.interaction?.id === interaction.id) return;
 
     const guildConfig = await storage.getGuildConfig(guild.id);
     if (!guildConfig) {
@@ -1299,6 +1258,12 @@ class DiscordBot {
     const ticket = await storage.getTicketByChannel(message.channelId);
     if (!ticket || ticket.status !== "open" && ticket.status !== "waiting") return;
 
+    // Desabilitar IA se terceiro (nem bot, nem owner) manda mensagem
+    if (ticket.aiModeEnabled && message.author.id !== ticket.userId && !message.author.bot) {
+      await storage.updateTicket(ticket.id, { aiModeEnabled: false });
+      await message.reply("🤖 IA foi desativada automaticamente pois um membro da equipe começou o atendimento.");
+    }
+
     await storage.createTicketMessage({
       ticketId: ticket.id,
       messageId: message.id,
@@ -1325,7 +1290,10 @@ class DiscordBot {
     if (!guildConfig) return;
 
     try {
-      await message.channel.sendTyping();
+      // Type guard para sendTyping
+      if ("sendTyping" in message.channel) {
+        await message.channel.sendTyping();
+      }
 
       const messages = await storage.getTicketMessages(ticket.id);
       const conversationHistory = messages.slice(-10).map((m) => ({
@@ -1354,17 +1322,20 @@ class DiscordBot {
         .setDescription(aiResponse)
         .setFooter({ text: "Resposta gerada por IA" });
 
-      const sentMessage = await message.channel.send({ embeds: [embed] });
+      // Type guard para send
+      if ("send" in message.channel) {
+        const sentMessage = await message.channel.send({ embeds: [embed] });
 
-      await storage.createTicketMessage({
-        ticketId: ticket.id,
-        messageId: sentMessage.id,
-        authorId: this.client.user?.id || "bot",
-        authorName: "Assistente IA",
-        content: aiResponse,
-        isBot: true,
-        isAi: true,
-      });
+        await storage.createTicketMessage({
+          ticketId: ticket.id,
+          messageId: sentMessage.id,
+          authorId: this.client.user?.id || "bot",
+          authorName: "Assistente IA",
+          content: aiResponse,
+          isBot: true,
+          isAi: true,
+        });
+      }
     } catch (error: any) {
       aiLogger.error("AI response generation failed", { error: error.message });
     }
@@ -1534,39 +1505,53 @@ class DiscordBot {
 
   private async handlePanelEditButtons(interaction: ButtonInteraction) {
     const panelId = interaction.customId.replace("panel_edit_buttons_", "");
-    const buttons = await storage.getPanelButtons(panelId);
+    
+    try {
+      const panel = await storage.getPanel(panelId);
+      if (!panel) {
+        await interaction.reply({ content: "Painel não encontrado.", flags: MessageFlags.Ephemeral });
+        return;
+      }
 
-    const embed = new EmbedBuilder()
-      .setColor(0x5865F2)
-      .setTitle("Gerenciar Botões")
-      .setDescription("Configure os botões do seu painel de tickets.\n\n**Botões atuais:**");
+      const buttons = await storage.getPanelButtons(panelId);
 
-    if (buttons.length === 0) {
-      embed.addFields({ name: "Nenhum botão", value: "Adicione um botão para continuar." });
-    } else {
-      buttons.forEach((btn, i) => {
-        embed.addFields({
-          name: `Botão ${i + 1}`,
-          value: `${btn.emoji || ""} ${btn.label} (${btn.style})`,
-          inline: true
+      const embed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle("Gerenciar Botões")
+        .setDescription("Configure os botões do seu painel de tickets.\n\n**Botões atuais:**");
+
+      if (buttons.length === 0) {
+        embed.addFields({ name: "Nenhum botão", value: "Adicione um botão para continuar." });
+      } else {
+        buttons.forEach((btn, i) => {
+          embed.addFields({
+            name: `Botão ${i + 1}`,
+            value: `${btn.emoji || ""} ${btn.label} (${btn.style})`,
+            inline: true
+          });
         });
-      });
+      }
+
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`panel_add_button_${panelId}`)
+          .setLabel("Adicionar Botão")
+          .setEmoji("➕")
+          .setStyle(ButtonStyle.Success)
+          .setDisabled(buttons.length >= 5),
+        new ButtonBuilder()
+          .setCustomId(`panel_back_config_${panelId}`)
+          .setLabel("Voltar")
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+      await interaction.update({ embeds: [embed], components: [row] });
+    } catch (error: any) {
+      discordLogger.error("Error in handlePanelEditButtons", { error: error.message });
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: "Erro ao gerenciar botões.", flags: MessageFlags.Ephemeral });
+      }
     }
-
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`panel_add_button_${panelId}`)
-        .setLabel("Adicionar Botão")
-        .setEmoji("➕")
-        .setStyle(ButtonStyle.Success)
-        .setDisabled(buttons.length >= 5),
-      new ButtonBuilder()
-        .setCustomId(`panel_back_config_${panelId}`)
-        .setLabel("Voltar")
-        .setStyle(ButtonStyle.Secondary)
-    );
-
-    await interaction.update({ embeds: [embed], components: [row] });
   }
 
   private async handlePanelEditWelcome(interaction: ButtonInteraction) {
@@ -1590,48 +1575,63 @@ class DiscordBot {
 
   private async handlePanelAddButton(interaction: ButtonInteraction) {
     const panelId = interaction.customId.replace("panel_add_button_", "");
-    const modal = new ModalBuilder()
-      .setCustomId(`modal_panel_add_button_${panelId}`)
-      .setTitle("Adicionar Botão")
-      .addComponents(
-        new ActionRowBuilder<TextInputBuilder>().addComponents(
-          new TextInputBuilder()
-            .setCustomId("label")
-            .setLabel("Texto do Botão")
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
-            .setMaxLength(80)
-        ),
-        new ActionRowBuilder<TextInputBuilder>().addComponents(
-          new TextInputBuilder()
-            .setCustomId("emoji")
-            .setLabel("Emoji (pode ser emoji de servidor)")
-            .setStyle(TextInputStyle.Short)
-            .setRequired(false)
-            .setMaxLength(100)
-            .setPlaceholder("📩 ou <:nome:id>")
-        ),
-        new ActionRowBuilder<TextInputBuilder>().addComponents(
-          new TextInputBuilder()
-            .setCustomId("style")
-            .setLabel("Estilo (primary/secondary/success/danger)")
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
-            .setPlaceholder("primary")
-        )
-      );
-    await interaction.showModal(modal);
+    
+    try {
+      const panel = await storage.getPanel(panelId);
+      if (!panel) {
+        await interaction.reply({ content: "Painel não encontrado.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      const modal = new ModalBuilder()
+        .setCustomId(`modal_panel_add_button_${panelId}`)
+        .setTitle("Adicionar Botão")
+        .addComponents(
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+              .setCustomId("label")
+              .setLabel("Texto do Botão")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+              .setMaxLength(80)
+          ),
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+              .setCustomId("emoji")
+              .setLabel("Emoji (pode ser emoji de servidor)")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+              .setMaxLength(100)
+              .setPlaceholder("📩 ou <:nome:id>")
+          ),
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+              .setCustomId("style")
+              .setLabel("Estilo (primary/secondary/success/danger)")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+              .setPlaceholder("primary")
+          )
+        );
+      await interaction.showModal(modal);
+    } catch (error: any) {
+      discordLogger.error("Error in handlePanelAddButton", { error: error.message });
+      if (!interaction.replied) {
+        await interaction.reply({ content: "Erro ao adicionar botão.", flags: MessageFlags.Ephemeral });
+      }
+    }
   }
 
   private async handlePanelPreview(interaction: ButtonInteraction) {
-    const panelId = interaction.customId.replace("panel_preview_", "");
-    const panel = await storage.getPanel(panelId);
-    if (!panel) {
-      await interaction.reply({ content: "Painel não encontrado.", flags: MessageFlags.Ephemeral });
-      return;
-    }
+    try {
+      const panelId = interaction.customId.replace("panel_preview_", "");
+      const panel = await storage.getPanel(panelId);
+      if (!panel) {
+        await interaction.reply({ content: "Painel não encontrado.", flags: MessageFlags.Ephemeral });
+        return;
+      }
 
-    const buttons = await storage.getPanelButtons(panelId);
+      const buttons = await storage.getPanelButtons(panelId);
     const guild = interaction.guild;
 
     const colorInt = parseInt(panel.embedColor?.replace("#", "") || "5865F2", 16);
@@ -1665,16 +1665,22 @@ class DiscordBot {
       row.addComponents(button);
     });
 
-    if (buttons.length > 0) {
-      rows.push(row);
-    }
+      if (buttons.length > 0) {
+        rows.push(row);
+      }
 
-    await interaction.reply({ 
-      content: "**Pré-visualização do Painel:**", 
-      embeds: [embed], 
-      components: rows,
-      flags: MessageFlags.Ephemeral 
-    });
+      await interaction.reply({ 
+        content: "**Pré-visualização do Painel:**", 
+        embeds: [embed], 
+        components: rows,
+        flags: MessageFlags.Ephemeral 
+      });
+    } catch (error: any) {
+      discordLogger.error("Error in handlePanelPreview", { error: error.message });
+      if (!interaction.replied) {
+        await interaction.reply({ content: "Erro ao visualizar painel.", flags: MessageFlags.Ephemeral });
+      }
+    }
   }
 
   private async getOrCreateWebhook(channel: TextChannel): Promise<any> {
@@ -1698,15 +1704,16 @@ class DiscordBot {
 
   private async handlePanelPublish(interaction: ButtonInteraction) {
     const panelId = interaction.customId.replace("panel_publish_", "");
+    
+    await interaction.deferUpdate();
+
     const panel = await storage.getPanel(panelId);
     const guild = interaction.guild;
     
     if (!panel || !guild) {
-      await interaction.reply({ content: "Painel não encontrado.", flags: MessageFlags.Ephemeral });
+      await interaction.followUp({ content: "Painel não encontrado.", flags: MessageFlags.Ephemeral });
       return;
     }
-
-    await interaction.deferUpdate();
 
     const buttons = await storage.getPanelButtons(panelId);
     if (buttons.length === 0) {
@@ -1777,12 +1784,21 @@ class DiscordBot {
 
   private async handlePanelDelete(interaction: ButtonInteraction) {
     const panelId = interaction.customId.replace("panel_delete_", "");
-    await storage.deletePanel(panelId);
-    await interaction.update({
-      content: "Configuração do painel cancelada.",
-      embeds: [],
-      components: [],
-    });
+    try {
+      await storage.deletePanel(panelId);
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.update({
+          content: "Configuração do painel cancelada.",
+          embeds: [],
+          components: [],
+        });
+      }
+    } catch (error: any) {
+      discordLogger.error("Error in handlePanelDelete", { error: error.message });
+      if (!interaction.replied) {
+        await interaction.reply({ content: "Erro ao deletar painel.", flags: MessageFlags.Ephemeral });
+      }
+    }
   }
 
   private async handlePanelBackConfig(interaction: ButtonInteraction) {

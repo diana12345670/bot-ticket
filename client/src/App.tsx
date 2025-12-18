@@ -13,6 +13,7 @@ import Tickets from "@/pages/tickets";
 import Feedbacks from "@/pages/feedbacks";
 import Guilds from "@/pages/guilds";
 import Settings from "@/pages/settings";
+import Panels from "@/pages/panels";
 
 function Router() {
   return (
@@ -22,6 +23,7 @@ function Router() {
       <Route path="/feedbacks" component={Feedbacks} />
       <Route path="/guilds" component={Guilds} />
       <Route path="/settings" component={Settings} />
+      <Route path="/panels" component={Panels} />
       <Route component={NotFound} />
     </Switch>
   );
