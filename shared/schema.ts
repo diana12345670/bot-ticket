@@ -76,6 +76,7 @@ export const ticketPanels = pgTable("ticket_panels", {
   embedColor: varchar("embed_color", { length: 7 }).default("#5865F2"),
   categoryId: varchar("category_id", { length: 32 }),
   welcomeMessage: text("welcome_message").default("Bem-vindo ao suporte! Um membro da equipe irá atendê-lo em breve."),
+  requireReason: boolean("require_reason").default(false),
   isConfigured: boolean("is_configured").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });

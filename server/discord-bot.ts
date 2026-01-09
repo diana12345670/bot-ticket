@@ -94,7 +94,7 @@ class DiscordBot {
   }
 
   private setupEventHandlers() {
-    this.client.once("clientReady", async () => {
+    this.client.once("ready", async () => {
       discordLogger.success(`Logged in as ${this.client.user?.tag}`);
       this.isReady = true;
       await this.registerCommands();
@@ -219,9 +219,7 @@ class DiscordBot {
     await interaction.editReply({ embeds: [embed], components: [row] });
   }
 
-  private async handleSelectMenu(interaction: StringSelectMenuInteraction) {
-    if (interaction.customId !== "setup_menu") return;
-
+  private async handleSetupSelectMenu(interaction: StringSelectMenuInteraction) {
     const value = interaction.values[0];
     const guild = interaction.guild;
     if (!guild) return;
@@ -325,6 +323,46 @@ class DiscordBot {
     }
   }
 
+  private async handleSelectMenu(interaction: StringSelectMenuInteraction) {
+    if (interaction.customId === "setup_menu") {
+      await this.handleSetupSelectMenu(interaction);
+      return;
+    }
+
+    // Handler para gerenciar opções do painel
+    if (interaction.customId.startsWith("panel_manage_options_")) {
+      await this.handlePanelManageOptions(interaction);
+      return;
+    }
+
+    // Handler para remover opção do painel
+    if (interaction.customId.startsWith("panel_remove_option_")) {
+      await this.handlePanelRemoveOption(interaction);
+      return;
+    }
+
+    // Handler para menu de seleção de opções de ticket
+    if (interaction.customId.startsWith("ticket_select_menu_")) {
+      await this.handleTicketSelectMenu(interaction);
+      return;
+    }
+
+    // Handler para gerenciar opções do painel
+    if (interaction.customId.startsWith("panel_manage_options_")) {
+      await this.handlePanelManageOptions(interaction);
+      return;
+    }
+
+    const guild = interaction.guild;
+    if (!guild) return;
+
+    // Este método só deve lidar com setup_menu, outros handlers já retornaram acima
+    await interaction.reply({
+      content: "Opção não reconhecida.",
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
   private async handleRoleSelectMenu(interaction: RoleSelectMenuInteraction) {
     const guild = interaction.guild;
     if (!guild) return;
@@ -390,28 +428,123 @@ class DiscordBot {
     const guild = interaction.guild;
     if (!guild) return;
 
+    const channel = interaction.options.getChannel("canal");
+    if (!channel || channel.type !== ChannelType.GuildText) {
+      await interaction.reply({
+        content: "Por favor, selecione um canal de texto válido.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    // Mostrar opciones de configuracao
-    const optionsEmbed = new EmbedBuilder()
-      .setColor(0x5865F2)
-      .setTitle("Como você deseja configurar o painel?")
-      .setDescription("Escolha como prefere configurar seu painel de tickets:");
+    try {
+      // Criar configuração do painel
+      const panel = await storage.createPanel({
+        guildId: guild.id,
+        channelId: channel.id,
+        title: "Sistema de Tickets",
+        description: "Selecione o tipo de ticket que deseja abrir no menu abaixo.",
+        embedColor: "#5865F2",
+        welcomeMessage: "Bem-vindo ao suporte! Um membro da equipe irá atendê-lo em breve.",
+        requireReason: false,
+        isConfigured: false,
+      });
 
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId("panel_config_discord")
-        .setLabel("Configurar pelo Discord")
-        .setEmoji("🤖")
-        .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder()
-        .setCustomId("panel_config_website")
-        .setLabel("Configurar pelo Site")
-        .setEmoji("🌐")
-        .setStyle(ButtonStyle.Success),
-    );
+      // Enviar o painel de configuração com menu de seleção
+      const configEmbed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle("Configuração do Painel de Tickets")
+        .setDescription("Configure seu painel de tickets usando o menu abaixo. Quando terminar, clique em **Publicar Painel**.")
+        .addFields(
+          { name: "Canal", value: `<#${channel.id}>`, inline: true },
+          { name: "Título", value: "Sistema de Tickets", inline: true },
+          { name: "Cor", value: "#5865F2", inline: true },
+          { name: "Categoria de Tickets", value: "Não configurada", inline: true },
+          { name: "Opções de Ticket", value: "0 opções configuradas", inline: true },
+          { name: "Motivo Obrigatório", value: "Não", inline: true },
+        )
+        .setFooter({ text: `ID do Painel: ${panel.id}` });
 
-    await interaction.editReply({ embeds: [optionsEmbed], components: [row] });
+      // Menu de seleção para configuração
+      const configMenu = new StringSelectMenuBuilder()
+        .setCustomId(`panel_config_menu_${panel.id}`)
+        .setPlaceholder("Selecione o que deseja configurar")
+        .addOptions([
+          { 
+            label: "Editar Título e Descrição", 
+            value: "edit_title", 
+            description: "Personalizar título e descrição do painel",
+            emoji: "✏️" 
+          },
+          { 
+            label: "Cor do Embed", 
+            value: "edit_color", 
+            description: "Definir cor do painel",
+            emoji: "🎨" 
+          },
+          { 
+            label: "Categoria de Tickets", 
+            value: "edit_category", 
+            description: "Selecionar categoria onde os tickets serão criados",
+            emoji: "📁" 
+          },
+          { 
+            label: "Mensagem de Boas-vindas", 
+            value: "edit_welcome", 
+            description: "Personalizar mensagem de boas-vindas",
+            emoji: "👋" 
+          },
+          { 
+            label: "Gerenciar Opções de Ticket", 
+            value: "manage_options", 
+            description: "Adicionar ou remover opções do menu",
+            emoji: "🔘" 
+          },
+          { 
+            label: "Motivo do Ticket", 
+            value: "toggle_reason", 
+            description: "Ativar/desativar motivo obrigatório",
+            emoji: "📝" 
+          },
+          { 
+            label: "Visualizar Painel", 
+            value: "preview", 
+            description: "Ver como ficará o painel",
+            emoji: "👁️" 
+          },
+          { 
+            label: "Publicar Painel", 
+            value: "publish", 
+            description: "Publicar o painel no canal",
+            emoji: "✅" 
+          },
+          { 
+            label: "Cancelar", 
+            value: "cancel", 
+            description: "Cancelar configuração",
+            emoji: "🗑️" 
+          },
+        ]);
+
+      const configRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(configMenu);
+
+      await interaction.editReply({ embeds: [configEmbed], components: [configRow] });
+    } catch (error: any) {
+      discordLogger.error("Error in handlePanelCommand", { error: error.message });
+      await interaction.editReply({ content: "Erro ao criar painel de tickets." });
+    }
+  }
+
+  private async handlePanelConfigWebsite(interaction: ButtonInteraction) {
+    const guild = interaction.guild;
+    if (!guild) return;
+
+    await interaction.deferUpdate();
+
+    // Configuração pelo site iniciada
+    await interaction.editReply({ content: "✅ Configuração pelo site iniciada. Acesse o dashboard para completar." });
   }
 
   private async handlePanelConfigDiscord(interaction: ButtonInteraction) {
@@ -548,7 +681,11 @@ class DiscordBot {
     const guild = interaction.guild;
 
     try {
-      if (customId.startsWith("create_ticket_")) {
+      if (customId === "panel_config_discord") {
+        await this.handlePanelConfigDiscord(interaction);
+      } else if (customId === "panel_config_website") {
+        await this.handlePanelConfigWebsite(interaction);
+      } else if (customId.startsWith("create_ticket_")) {
         await this.createTicketFromPanel(interaction);
       } else if (customId === "create_ticket") {
         await this.createTicket(interaction);
@@ -643,6 +780,18 @@ class DiscordBot {
   private async handleModalSubmit(interaction: ModalSubmitInteraction) {
     if (interaction.customId.startsWith("feedback_comment_")) {
       await this.handleFeedbackComment(interaction);
+      return;
+    }
+
+    // Handler para modal de motivo do ticket
+    if (interaction.customId.startsWith("ticket_reason_")) {
+      await this.handleTicketReasonSubmit(interaction);
+      return;
+    }
+
+    // Handler para modal de adicionar opção ao painel
+    if (interaction.customId.startsWith("modal_panel_add_option_")) {
+      await this.handlePanelAddOptionSubmit(interaction);
       return;
     }
 
@@ -1632,47 +1781,36 @@ class DiscordBot {
       }
 
       const buttons = await storage.getPanelButtons(panelId);
-    const guild = interaction.guild;
+      const guild = interaction.guild;
 
-    const colorInt = parseInt(panel.embedColor?.replace("#", "") || "5865F2", 16);
-    const embed = new EmbedBuilder()
-      .setColor(colorInt)
-      .setTitle(panel.title || "Sistema de Tickets")
-      .setDescription(panel.description || "Clique no botão abaixo para abrir um ticket.")
-      .setThumbnail(guild?.iconURL() || null)
-      .setFooter({ text: guild?.name || "Preview", iconURL: guild?.iconURL() || undefined });
+      const colorInt = parseInt(panel.embedColor?.replace("#", "") || "5865F2", 16);
+      const embed = new EmbedBuilder()
+        .setColor(colorInt)
+        .setTitle(panel.title || "Sistema de Tickets")
+        .setDescription(panel.description || "Selecione o tipo de ticket que deseja abrir no menu abaixo.")
+        .setThumbnail(guild?.iconURL() || null)
+        .setFooter({ text: guild?.name || "Preview", iconURL: guild?.iconURL() || undefined });
 
-    const buttonStyles: Record<string, ButtonStyle> = {
-      primary: ButtonStyle.Primary,
-      secondary: ButtonStyle.Secondary,
-      success: ButtonStyle.Success,
-      danger: ButtonStyle.Danger,
-    };
+      // Criar menu de seleção para preview
+      const ticketMenu = new StringSelectMenuBuilder()
+        .setCustomId(`ticket_select_menu_preview_${panel.id}`)
+        .setPlaceholder("Selecione o tipo de ticket...")
+        .addOptions(
+          buttons.map(btn => ({
+            label: btn.label || "Abrir Ticket",
+            value: btn.id,
+            description: `Abrir ticket: ${btn.label}`,
+            emoji: btn.emoji || "📩"
+          }))
+        )
+        .setDisabled(true); // Desabilitado para preview
 
-    const rows: ActionRowBuilder<ButtonBuilder>[] = [];
-    const row = new ActionRowBuilder<ButtonBuilder>();
-    
-    buttons.forEach((btn, i) => {
-      const button = new ButtonBuilder()
-        .setCustomId(`preview_btn_${i}`)
-        .setLabel(btn.label || "Abrir Ticket")
-        .setStyle(buttonStyles[btn.style || "primary"] || ButtonStyle.Primary)
-        .setDisabled(true);
-      
-      if (btn.emoji) {
-        button.setEmoji(btn.emoji);
-      }
-      row.addComponents(button);
-    });
-
-      if (buttons.length > 0) {
-        rows.push(row);
-      }
+      const menuRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(ticketMenu);
 
       await interaction.reply({ 
         content: "**Pré-visualização do Painel:**", 
         embeds: [embed], 
-        components: rows,
+        components: [menuRow],
         flags: MessageFlags.Ephemeral 
       });
     } catch (error: any) {
@@ -1717,7 +1855,7 @@ class DiscordBot {
 
     const buttons = await storage.getPanelButtons(panelId);
     if (buttons.length === 0) {
-      await interaction.followUp({ content: "Adicione pelo menos um botão antes de publicar.", flags: MessageFlags.Ephemeral });
+      await interaction.followUp({ content: "Adicione pelo menos uma opção antes de publicar.", flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -1734,34 +1872,29 @@ class DiscordBot {
       const embed = new EmbedBuilder()
         .setColor(colorInt)
         .setTitle(panel.title || "Sistema de Tickets")
-        .setDescription(panel.description || "Clique no botão abaixo para abrir um ticket.")
+        .setDescription(panel.description || "Selecione o tipo de ticket que deseja abrir no menu abaixo.")
         .setThumbnail(guild.iconURL())
         .setFooter({ text: guild.name, iconURL: guild.iconURL() || undefined });
 
-      const buttonStyles: Record<string, ButtonStyle> = {
-        primary: ButtonStyle.Primary,
-        secondary: ButtonStyle.Secondary,
-        success: ButtonStyle.Success,
-        danger: ButtonStyle.Danger,
-      };
+      // Criar menu de seleção com as opções
+      const ticketMenu = new StringSelectMenuBuilder()
+        .setCustomId(`ticket_select_menu_${panel.id}`)
+        .setPlaceholder("Selecione o tipo de ticket...")
+        .addOptions(
+          buttons.map(btn => ({
+            label: btn.label || "Abrir Ticket",
+            value: btn.id,
+            description: `Abrir ticket: ${btn.label}`,
+            emoji: btn.emoji || "📩"
+          }))
+        );
 
-      const row = new ActionRowBuilder<ButtonBuilder>();
-      buttons.forEach((btn) => {
-        const button = new ButtonBuilder()
-          .setCustomId("criar_ticket")
-          .setLabel(btn.label || "Abrir Ticket")
-          .setStyle(buttonStyles[btn.style || "primary"] || ButtonStyle.Primary);
-        
-        if (btn.emoji) {
-          button.setEmoji(btn.emoji);
-        }
-        row.addComponents(button);
-      });
+      const menuRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(ticketMenu);
 
       const webhookClient = new WebhookClient({ url: webhook.url });
       const message = await webhookClient.send({
         embeds: [embed],
-        components: [row],
+        components: [menuRow],
         username: guild.name,
         avatarURL: guild.iconURL() || undefined,
       });
@@ -2127,6 +2260,656 @@ class DiscordBot {
           { name: "Número", value: `#${ticketNumber}`, inline: true },
         ],
       });
+    }
+  }
+
+  private async handlePanelManageOptions(interaction: StringSelectMenuInteraction) {
+    const value = interaction.values[0];
+    const panelId = interaction.customId.replace("panel_manage_options_", "");
+    
+    try {
+      switch (value) {
+        case "add_option":
+          await this.showAddOptionModal(interaction, panelId);
+          break;
+        case "remove_option":
+          await this.showRemoveOptionMenu(interaction, panelId);
+          break;
+        case "back":
+          await this.showPanelConfigMenu(interaction, panelId);
+          break;
+      }
+    } catch (error: any) {
+      discordLogger.error("Error in handlePanelManageOptions", { error: error.message });
+      if (!interaction.replied) {
+        await interaction.reply({ content: "Erro ao gerenciar opções.", flags: MessageFlags.Ephemeral });
+      }
+    }
+  }
+
+  private async handlePanelRemoveOption(interaction: StringSelectMenuInteraction) {
+    const optionId = interaction.values[0];
+    const panelId = interaction.customId.replace("panel_remove_option_", "");
+    
+    try {
+      await storage.deletePanelButton(optionId);
+      
+      await interaction.update({
+        content: "✅ Opção removida com sucesso!",
+        components: [],
+      });
+
+      // Mostrar menu de gerenciamento novamente após um pequeno delay
+      setTimeout(async () => {
+        try {
+          const buttons = await storage.getPanelButtons(panelId);
+          
+          const options = [
+            {
+              label: "Adicionar Opção",
+              value: "add_option",
+              description: "Adicionar uma nova opção de ticket",
+              emoji: "➕"
+            },
+            {
+              label: "Remover Opção",
+              value: "remove_option",
+              description: "Remover uma opção existente",
+              emoji: "➖"
+            },
+            {
+              label: "Voltar",
+              value: "back",
+              description: "Voltar para o menu principal",
+              emoji: "⬅️"
+            }
+          ];
+
+          const manageMenu = new StringSelectMenuBuilder()
+            .setCustomId(`panel_manage_options_${panelId}`)
+            .setPlaceholder("Selecione uma ação")
+            .addOptions(options);
+
+          const manageRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(manageMenu);
+
+          await interaction.followUp({
+            content: "🔘 Gerenciar opções do painel:",
+            components: [manageRow],
+            flags: MessageFlags.Ephemeral,
+          });
+        } catch (error: any) {
+          discordLogger.error("Error showing manage menu after removal", { error: error.message });
+        }
+      }, 1000);
+    } catch (error: any) {
+      discordLogger.error("Error in handlePanelRemoveOption", { error: error.message });
+      if (!interaction.replied) {
+        await interaction.reply({ content: "Erro ao remover opção.", flags: MessageFlags.Ephemeral });
+      }
+    }
+  }
+
+  private async showAddOptionModal(interaction: StringSelectMenuInteraction, panelId: string) {
+    const modal = new ModalBuilder()
+      .setCustomId(`modal_panel_add_option_${panelId}`)
+      .setTitle("Adicionar Opção de Ticket")
+      .addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId("label")
+            .setLabel("Nome da Opção")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+            .setMaxLength(80)
+            .setPlaceholder("Ex: Suporte Técnico")
+        )
+      );
+
+    await interaction.showModal(modal);
+  }
+
+  private async showRemoveOptionMenu(interaction: StringSelectMenuInteraction, panelId: string) {
+    try {
+      const buttons = await storage.getPanelButtons(panelId);
+      
+      if (buttons.length === 0) {
+        await interaction.reply({
+          content: "Não há opções para remover. Adicione uma opção primeiro.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      const options = buttons.map((btn, index) => ({
+        label: btn.label || `Opção ${index + 1}`,
+        value: btn.id,
+        description: `Remover opção: ${btn.label}`,
+        emoji: btn.emoji || "🔘"
+      }));
+
+      const removeMenu = new StringSelectMenuBuilder()
+        .setCustomId(`panel_remove_option_${panelId}`)
+        .setPlaceholder("Selecione a opção para remover")
+        .addOptions(options);
+
+      const removeRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(removeMenu);
+
+      await interaction.reply({
+        content: "🗑️ Selecione a opção que deseja remover:",
+        components: [removeRow],
+        flags: MessageFlags.Ephemeral,
+      });
+    } catch (error: any) {
+      discordLogger.error("Error in showRemoveOptionMenu", { error: error.message });
+      if (!interaction.replied) {
+        await interaction.reply({ content: "Erro ao mostrar menu de remoção.", flags: MessageFlags.Ephemeral });
+      }
+    }
+  }
+
+  private async showPanelConfigMenu(interaction: StringSelectMenuInteraction, panelId: string) {
+    try {
+      const panel = await storage.getPanel(panelId);
+      if (!panel) {
+        await interaction.reply({ content: "Painel não encontrado.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      const buttons = await storage.getPanelButtons(panelId);
+
+      const configEmbed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle("Configuração do Painel de Tickets")
+        .setDescription("Configure seu painel de tickets usando o menu abaixo. Quando terminar, clique em **Publicar Painel**.")
+        .addFields(
+          { name: "Canal", value: `<#${panel.channelId}>`, inline: true },
+          { name: "Título", value: panel.title || "Sistema de Tickets", inline: true },
+          { name: "Cor", value: panel.embedColor || "#5865F2", inline: true },
+          { name: "Categoria de Tickets", value: panel.categoryId ? `<#${panel.categoryId}>` : "Não configurada", inline: true },
+          { name: "Opções de Ticket", value: `${buttons.length} opção${buttons.length !== 1 ? "ões" : "ão"} configurada${buttons.length !== 1 ? "s" : ""}`, inline: true },
+          { name: "Motivo Obrigatório", value: panel.requireReason ? "Sim" : "Não", inline: true },
+        )
+        .setFooter({ text: `ID do Painel: ${panel.id}` });
+
+      // Menu de seleção para configuração
+      const configMenu = new StringSelectMenuBuilder()
+        .setCustomId(`panel_config_menu_${panel.id}`)
+        .setPlaceholder("Selecione o que deseja configurar")
+        .addOptions([
+          { 
+            label: "Editar Título e Descrição", 
+            value: "edit_title", 
+            description: "Personalizar título e descrição do painel",
+            emoji: "✏️" 
+          },
+          { 
+            label: "Cor do Embed", 
+            value: "edit_color", 
+            description: "Definir cor do painel",
+            emoji: "🎨" 
+          },
+          { 
+            label: "Categoria de Tickets", 
+            value: "edit_category", 
+            description: "Selecionar categoria onde os tickets serão criados",
+            emoji: "📁" 
+          },
+          { 
+            label: "Mensagem de Boas-vindas", 
+            value: "edit_welcome", 
+            description: "Personalizar mensagem de boas-vindas",
+            emoji: "👋" 
+          },
+          { 
+            label: "Gerenciar Opções de Ticket", 
+            value: "manage_options", 
+            description: "Adicionar ou remover opções do menu",
+            emoji: "🔘" 
+          },
+          { 
+            label: "Motivo do Ticket", 
+            value: "toggle_reason", 
+            description: "Ativar/desativar motivo obrigatório",
+            emoji: "📝" 
+          },
+          { 
+            label: "Visualizar Painel", 
+            value: "preview", 
+            description: "Ver como ficará o painel",
+            emoji: "👁️" 
+          },
+          { 
+            label: "Publicar Painel", 
+            value: "publish", 
+            description: "Publicar o painel no canal",
+            emoji: "✅" 
+          },
+          { 
+            label: "Cancelar", 
+            value: "cancel", 
+            description: "Cancelar configuração",
+            emoji: "🗑️" 
+          },
+        ]);
+
+      const configRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(configMenu);
+
+      await interaction.editReply({ embeds: [configEmbed], components: [configRow] });
+    } catch (error: any) {
+      discordLogger.error("Error in showPanelConfigMenu", { error: error.message });
+      if (!interaction.replied) {
+        await interaction.reply({ content: "Erro ao mostrar menu de configuração.", flags: MessageFlags.Ephemeral });
+      }
+    }
+  }
+
+  private async handleTicketSelectMenu(interaction: StringSelectMenuInteraction) {
+    const panelId = interaction.customId.replace("ticket_select_menu_", "");
+    const optionId = interaction.values[0];
+    
+    try {
+      const panel = await storage.getPanel(panelId);
+      if (!panel) {
+        await interaction.reply({ content: "Painel não encontrado.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      const buttons = await storage.getPanelButtons(panelId);
+      const option = buttons.find(btn => btn.id === optionId);
+      if (!option) {
+        await interaction.reply({ content: "Opção não encontrada.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      // Se o motivo é obrigatório, mostrar modal
+      if (panel.requireReason) {
+        await this.showTicketReasonModal(interaction, panel, option);
+      } else {
+        // Criar ticket diretamente com o nome da opção como motivo
+        await this.createTicketFromOption(interaction, panel, option, option.label);
+      }
+    } catch (error: any) {
+      discordLogger.error("Error in handleTicketSelectMenu", { error: error.message });
+      if (!interaction.replied) {
+        await interaction.reply({ content: "Erro ao criar ticket.", flags: MessageFlags.Ephemeral });
+      }
+    }
+  }
+
+  private async showTicketReasonModal(interaction: StringSelectMenuInteraction, panel: any, option: any) {
+    const modal = new ModalBuilder()
+      .setCustomId(`ticket_reason_${panel.id}_${option.id}`)
+      .setTitle("Motivo do Ticket")
+      .addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId("reason")
+            .setLabel("Qual o motivo do seu ticket?")
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(true)
+            .setMaxLength(500)
+            .setPlaceholder("Descreva detalhadamente o motivo do seu ticket...")
+        )
+      );
+
+    await interaction.showModal(modal);
+  }
+
+  private async createTicketFromOption(interaction: StringSelectMenuInteraction | ButtonInteraction, panel: any, option: any, reason: string) {
+    const guild = interaction.guild;
+    if (!guild) return;
+
+    const guildConfig = await storage.getGuildConfig(guild.id);
+    if (!guildConfig) {
+      await interaction.reply({ content: "Configuração do servidor não encontrada.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    const existingTickets = await storage.getTicketsByUser(interaction.user.id, guild.id);
+    const openTicket = existingTickets.find(t => t.status === "open" || t.status === "waiting");
+    
+    if (openTicket) {
+      await interaction.reply({
+        content: `Você já possui um ticket aberto: <#${openTicket.channelId}>`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const categoryId = panel.categoryId || guildConfig.ticketCategoryId;
+    
+    if (categoryId) {
+      try {
+        const category = await guild.channels.fetch(categoryId);
+        if (!category || category.type !== ChannelType.GuildCategory) {
+          await interaction.reply({
+            content: "A categoria configurada não é válida. Por favor, contate um administrador.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+      } catch {
+        await interaction.reply({
+          content: "Não foi possível encontrar a categoria. Por favor, contate um administrador.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+    }
+
+    const ticketNumber = await storage.getNextTicketNumber(guild.id);
+    const channelName = `ticket-${ticketNumber.toString().padStart(4, '0')}`;
+
+    const permissionOverwrites: any[] = [
+      { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+      {
+        id: interaction.user.id,
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+      },
+    ];
+
+    if (guildConfig.staffRoleId) {
+      permissionOverwrites.push({
+        id: guildConfig.staffRoleId,
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageMessages],
+      });
+    }
+
+    const ticketChannel = await guild.channels.create({
+      name: channelName,
+      type: ChannelType.GuildText,
+      parent: categoryId || undefined,
+      permissionOverwrites,
+    });
+
+    const ticket = await storage.createTicket({
+      ticketNumber,
+      guildId: guild.id,
+      channelId: ticketChannel.id,
+      userId: interaction.user.id,
+      userName: interaction.user.username,
+      userAvatar: interaction.user.displayAvatarURL(),
+      status: "open",
+      aiModeEnabled: false,
+    });
+
+    const welcomeEmbed = new EmbedBuilder()
+      .setColor(0x5865F2)
+      .setTitle(`Ticket #${ticketNumber.toString().padStart(4, '0')}`)
+      .setDescription(panel.welcomeMessage || guildConfig.welcomeMessage || "Bem-vindo ao suporte! Um membro da equipe irá atendê-lo em breve.")
+      .addFields(
+        { name: "Usuário", value: `<@${interaction.user.id}>`, inline: true },
+        { name: "Status", value: "Aberto", inline: true },
+        { name: "Motivo", value: reason, inline: true },
+        { name: "Criado em", value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: true }
+      )
+      .setThumbnail(interaction.user.displayAvatarURL())
+      .setFooter({ text: guild.name, iconURL: guild.iconURL() || undefined });
+
+    const row1 = new ActionRowBuilder<ButtonBuilder>()
+      .addComponents(
+        new ButtonBuilder().setCustomId("close_ticket").setLabel("Fechar Ticket").setEmoji("🔒").setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId("claim_ticket").setLabel("Reivindicar").setEmoji("✋").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId("notify_dm").setLabel("Notificar DM").setEmoji("🔔").setStyle(ButtonStyle.Secondary)
+      );
+
+    const row2 = new ActionRowBuilder<ButtonBuilder>()
+      .addComponents(
+        new ButtonBuilder().setCustomId("toggle_ai").setLabel("Ativar IA").setEmoji("🤖").setStyle(ButtonStyle.Success)
+      );
+
+    await ticketChannel.send({ content: `<@${interaction.user.id}>`, embeds: [welcomeEmbed], components: [row1, row2] });
+
+    await interaction.reply({ content: `Seu ticket foi criado: <#${ticketChannel.id}>`, flags: MessageFlags.Ephemeral });
+
+    if (guildConfig.logChannelId) {
+      await this.sendLog(guildConfig.logChannelId, {
+        color: 0x57F287,
+        title: "Ticket Criado",
+        description: `Um novo ticket foi aberto por <@${interaction.user.id}>`,
+        fields: [
+          { name: "Ticket", value: `<#${ticketChannel.id}>`, inline: true },
+          { name: "Número", value: `#${ticketNumber}`, inline: true },
+          { name: "Motivo", value: reason, inline: true },
+        ],
+      });
+    }
+  }
+
+  private async handleTicketReasonSubmit(interaction: ModalSubmitInteraction) {
+    const [, , panelId, optionId] = interaction.customId.split("_");
+    const reason = interaction.fields.getTextInputValue("reason");
+    
+    try {
+      const panel = await storage.getPanel(panelId);
+      if (!panel) {
+        await interaction.reply({ content: "Painel não encontrado.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      const buttons = await storage.getPanelButtons(panelId);
+      const option = buttons.find(btn => btn.id === optionId);
+      if (!option) {
+        await interaction.reply({ content: "Opção não encontrada.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      // Criar ticket com o motivo fornecido
+      await this.createTicketFromOption(interaction, panel, option, reason);
+    } catch (error: any) {
+      discordLogger.error("Error in handleTicketReasonSubmit", { error: error.message });
+      if (!interaction.replied) {
+        await interaction.reply({ content: "Erro ao criar ticket.", flags: MessageFlags.Ephemeral });
+      }
+    }
+  }
+
+  private async handlePanelAddOptionSubmit(interaction: ModalSubmitInteraction) {
+    const panelId = interaction.customId.replace("modal_panel_add_option_", "");
+    const label = interaction.fields.getTextInputValue("label");
+    
+    try {
+      const panel = await storage.getPanel(panelId);
+      if (!panel) {
+        await interaction.reply({ content: "Painel não encontrado.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      // Enviar mensagem para capturar emoji
+      await this.sendEmojiCaptureMessage(interaction, panelId, label);
+    } catch (error: any) {
+      discordLogger.error("Error in handlePanelAddOptionSubmit", { error: error.message });
+      if (!interaction.replied) {
+        await interaction.reply({ content: "Erro ao adicionar opção.", flags: MessageFlags.Ephemeral });
+      }
+    }
+  }
+
+  private async sendEmojiCaptureMessage(interaction: ModalSubmitInteraction, panelId: string, label: string) {
+    const guild = interaction.guild;
+    if (!guild) return;
+
+    try {
+      // Enviar mensagem pedindo emoji (sem flags para poder receber reações)
+      const emojiMessage = await interaction.channel!.send({
+        content: `🎯 **Reaja com o emoji que deseja usar para a opção "${label}"**\n\nReaja a esta mensagem com o emoji que será usado no botão/opção do menu.`,
+      });
+
+      // Aguardar reação (usar collector)
+      const collector = emojiMessage.createReactionCollector({
+        max: 1,
+        time: 30000, // 30 segundos
+        filter: (reaction, user) => user.id === interaction.user.id,
+      });
+
+      collector.on('collect', async (reaction) => {
+        try {
+          const emoji = reaction.emoji.toString();
+          
+          // Criar a opção com o emoji capturado
+          const existingButtons = await storage.getPanelButtons(panelId);
+          await storage.createPanelButton({
+            panelId,
+            label,
+            emoji,
+            style: "primary",
+            order: existingButtons.length,
+          });
+
+          await interaction.followUp({
+            content: `✅ Opção "${label}" adicionada com emoji ${emoji}!`,
+            flags: MessageFlags.Ephemeral,
+          });
+
+          // Deletar mensagem de captura
+          await emojiMessage.delete();
+        } catch (error: any) {
+          discordLogger.error("Error processing emoji reaction", { error: error.message });
+          await interaction.followUp({
+            content: "Erro ao processar emoji. Tente novamente.",
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+      });
+
+      collector.on('end', async (collected) => {
+        if (collected.size === 0) {
+          await interaction.followUp({
+            content: "⏰ Tempo esgotado. Nenhum emoji foi selecionado.",
+            flags: MessageFlags.Ephemeral,
+          });
+          await emojiMessage.delete();
+        }
+      });
+
+      await interaction.reply({
+        content: "Mensagem enviada! Reaja com o emoji que deseja usar.",
+        flags: MessageFlags.Ephemeral,
+      });
+    } catch (error: any) {
+      discordLogger.error("Error in sendEmojiCaptureMessage", { error: error.message });
+      if (!interaction.replied) {
+        await interaction.reply({ content: "Erro ao enviar mensagem de captura.", flags: MessageFlags.Ephemeral });
+      }
+    }
+  }
+
+  private async handlePanelConfigMenu(interaction: StringSelectMenuInteraction) {
+    const value = interaction.values[0];
+    const panelId = interaction.customId.replace("panel_config_menu_", "");
+    const guild = interaction.guild;
+    
+    if (!guild) return;
+
+    try {
+      const panel = await storage.getPanel(panelId);
+      if (!panel) {
+        await interaction.reply({ content: "Painel não encontrado.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      switch (value) {
+        case "edit_title":
+          await this.handlePanelEditTitle(interaction);
+          break;
+        case "edit_color":
+          await this.handlePanelEditColor(interaction);
+          break;
+        case "edit_category":
+          await this.handlePanelEditCategory(interaction);
+          break;
+        case "edit_welcome":
+          await this.handlePanelEditWelcome(interaction);
+          break;
+        case "manage_options":
+          await this.showManageOptionsMenu(interaction, panelId);
+          break;
+        case "toggle_reason":
+          await this.handlePanelToggleReason(interaction, panelId);
+          break;
+        case "preview":
+          await this.handlePanelPreview(interaction);
+          break;
+        case "publish":
+          await this.handlePanelPublish(interaction);
+          break;
+        case "cancel":
+          await this.handlePanelDelete(interaction);
+          break;
+      }
+    } catch (error: any) {
+      discordLogger.error("Error in handlePanelConfigMenu", { error: error.message });
+      if (!interaction.replied) {
+        await interaction.reply({ content: "Erro ao processar configuração.", flags: MessageFlags.Ephemeral });
+      }
+    }
+  }
+
+  private async showManageOptionsMenu(interaction: StringSelectMenuInteraction, panelId: string) {
+    try {
+      const buttons = await storage.getPanelButtons(panelId);
+      
+      const options = [
+        {
+          label: "Adicionar Opção",
+          value: "add_option",
+          description: "Adicionar uma nova opção de ticket",
+          emoji: "➕"
+        },
+        {
+          label: "Remover Opção",
+          value: "remove_option",
+          description: "Remover uma opção existente",
+          emoji: "➖"
+        },
+        {
+          label: "Voltar",
+          value: "back",
+          description: "Voltar para o menu principal",
+          emoji: "⬅️"
+        }
+      ];
+
+      const manageMenu = new StringSelectMenuBuilder()
+        .setCustomId(`panel_manage_options_${panelId}`)
+        .setPlaceholder("Selecione uma ação")
+        .addOptions(options);
+
+      const manageRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(manageMenu);
+
+      await interaction.reply({
+        content: "🔘 Gerenciar opções do painel:",
+        components: [manageRow],
+        flags: MessageFlags.Ephemeral,
+      });
+    } catch (error: any) {
+      discordLogger.error("Error in showManageOptionsMenu", { error: error.message });
+      if (!interaction.replied) {
+        await interaction.reply({ content: "Erro ao mostrar menu de opções.", flags: MessageFlags.Ephemeral });
+      }
+    }
+  }
+
+  private async handlePanelToggleReason(interaction: StringSelectMenuInteraction, panelId: string) {
+    try {
+      const panel = await storage.getPanel(panelId);
+      if (!panel) {
+        await interaction.reply({ content: "Painel não encontrado.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      const newRequireReason = !panel.requireReason;
+      await storage.updatePanel(panelId, { requireReason: newRequireReason });
+
+      await interaction.update({
+        content: `✅ Motivo do ticket ${newRequireReason ? "ativado" : "desativado"} com sucesso!`,
+        components: [],
+      });
+    } catch (error: any) {
+      discordLogger.error("Error in handlePanelToggleReason", { error: error.message });
+      if (!interaction.replied) {
+        await interaction.reply({ content: "Erro ao alterar configuração.", flags: MessageFlags.Ephemeral });
+      }
     }
   }
 
