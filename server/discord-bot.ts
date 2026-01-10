@@ -47,8 +47,8 @@ const commands = [
     .setDescription("Criar um painel de tickets personalizado")
     .addChannelOption(option =>
       option.setName("canal")
-        .setDescription("Canal onde o painel será enviado")
-        .setRequired(true))
+        .setDescription("Canal onde o painel será enviado (opcional, usa o canal atual)")
+        .setRequired(false))
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   
   new SlashCommandBuilder()
@@ -428,7 +428,13 @@ class DiscordBot {
     const guild = interaction.guild;
     if (!guild) return;
 
-    const channel = interaction.options.getChannel("canal");
+    // Usar o canal especificado ou o canal atual
+    let channel = interaction.options.getChannel("canal");
+    if (!channel) {
+      // Se nenhum canal foi especificado, usar o canal onde o comando foi usado
+      channel = interaction.channel;
+    }
+
     if (!channel || channel.type !== ChannelType.GuildText) {
       await interaction.reply({
         content: "Por favor, selecione um canal de texto válido.",
