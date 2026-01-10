@@ -439,6 +439,12 @@ class DiscordBot {
       return;
     }
 
+    // Handler para menu de configuração do painel
+    if (interaction.customId.startsWith("panel_config_menu_")) {
+      await this.handlePanelConfigMenu(interaction);
+      return;
+    }
+
     const guild = interaction.guild;
     if (!guild) return;
 
