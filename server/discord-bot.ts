@@ -136,11 +136,56 @@ class DiscordBot {
   private async registerCommands() {
     try {
       const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_BOT_TOKEN!);
-      await rest.put(
-        Routes.applicationCommands(this.client.user!.id),
-        { body: commands.map(cmd => cmd.toJSON()) }
-      );
-      discordLogger.success("Slash commands registered");
+      
+      // Para cada servidor, deletar e registrar comandos localmente
+      for (const guild of this.client.guilds.cache.values()) {
+        try {
+          discordLogger.info(`Processing guild: ${guild.name} (${guild.id})`);
+          
+          // Deletar comandos existentes no servidor
+          try {
+            const existingCommands = await rest.get(
+              Routes.applicationGuildCommands(this.client.user!.id, guild.id)
+            );
+            
+            if (Array.isArray(existingCommands) && existingCommands.length > 0) {
+              discordLogger.info(`Deleting ${existingCommands.length} commands from guild ${guild.name}...`);
+              await rest.put(
+                Routes.applicationGuildCommands(this.client.user!.id, guild.id),
+                { body: [] }
+              );
+              discordLogger.success(`Commands deleted from guild ${guild.name}`);
+            }
+          } catch (deleteError: any) {
+            discordLogger.warn(`Could not delete commands from guild ${guild.name}`, { error: deleteError.message });
+          }
+          
+          // Registrar novos comandos no servidor
+          await rest.put(
+            Routes.applicationGuildCommands(this.client.user!.id, guild.id),
+            { body: commands.map(cmd => cmd.toJSON()) }
+          );
+          discordLogger.success(`Commands registered for guild ${guild.name}`);
+          
+          // Pequeno delay para evitar rate limits
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+        } catch (guildError: any) {
+          discordLogger.error(`Failed to register commands for guild ${guild.name}`, { error: guildError.message });
+        }
+      }
+      
+      // Também deletar comandos globais se existirem
+      try {
+        await rest.put(
+          Routes.applicationCommands(this.client.user!.id),
+          { body: [] }
+        );
+        discordLogger.success("Global commands cleared");
+      } catch (globalError: any) {
+        discordLogger.warn("Could not clear global commands", { error: globalError.message });
+      }
+      
     } catch (error: any) {
       discordLogger.error("Failed to register commands", { error: error.message });
     }
