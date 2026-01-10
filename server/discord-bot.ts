@@ -329,6 +329,12 @@ class DiscordBot {
       return;
     }
 
+    // Handler para menu de configuração do painel
+    if (interaction.customId.startsWith("panel_config_menu_")) {
+      await this.handlePanelConfigMenu(interaction);
+      return;
+    }
+
     // Handler para gerenciar opções do painel
     if (interaction.customId.startsWith("panel_manage_options_")) {
       await this.handlePanelManageOptions(interaction);
@@ -347,16 +353,10 @@ class DiscordBot {
       return;
     }
 
-    // Handler para gerenciar opções do painel
-    if (interaction.customId.startsWith("panel_manage_options_")) {
-      await this.handlePanelManageOptions(interaction);
-      return;
-    }
-
     const guild = interaction.guild;
     if (!guild) return;
 
-    // Este método só deve lidar com setup_menu, outros handlers já retornaram acima
+    // Este método só deve lidar com menus conhecidos, outros handlers já retornaram acima
     await interaction.reply({
       content: "Opção não reconhecida.",
       flags: MessageFlags.Ephemeral,
@@ -537,26 +537,7 @@ class DiscordBot {
     }
   }
 
-  private async handlePanelConfigWebsite(interaction: ButtonInteraction) {
-    const guild = interaction.guild;
-    if (!guild) return;
-
-    await interaction.deferUpdate();
-
-    // Configuração pelo site iniciada
-    await interaction.editReply({ content: "✅ Configuração pelo site iniciada. Acesse o dashboard para completar." });
-  }
-
-  private async handlePanelConfigDiscord(interaction: ButtonInteraction) {
-    const guild = interaction.guild;
-    if (!guild) return;
-
-    await interaction.deferUpdate();
-
-    // Configuração pelo Discord iniciada
-    await interaction.editReply({ content: "✅ Configuração pelo Discord iniciada. Use `/painel-ticket #canal` para completar." });
-  }
-
+  
   private async handleAICommand(interaction: ChatInputCommandInteraction) {
     const guild = interaction.guild;
     if (!guild) return;
@@ -681,11 +662,7 @@ class DiscordBot {
     const guild = interaction.guild;
 
     try {
-      if (customId === "panel_config_discord") {
-        await this.handlePanelConfigDiscord(interaction);
-      } else if (customId === "panel_config_website") {
-        await this.handlePanelConfigWebsite(interaction);
-      } else if (customId.startsWith("create_ticket_")) {
+      if (customId.startsWith("create_ticket_")) {
         await this.createTicketFromPanel(interaction);
       } else if (customId === "create_ticket") {
         await this.createTicket(interaction);
