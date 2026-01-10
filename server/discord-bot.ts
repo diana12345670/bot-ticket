@@ -149,10 +149,27 @@ class DiscordBot {
     try {
       const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_BOT_TOKEN!);
       
-      // Para cada servidor, deletar e registrar comandos localmente
+      serverLogger.startup("Command Registration", {
+        totalCommands: commands.length,
+        guilds: this.client.guilds.cache.size
+      });
+      
+      // PRIMEIRO: Deletar TODOS os comandos globais
+      try {
+        discordLogger.info("Clearing all global commands...");
+        await rest.put(
+          Routes.applicationCommands(this.client.user!.id),
+          { body: [] }
+        );
+        discordLogger.success("✅ All global commands cleared");
+      } catch (globalError: any) {
+        discordLogger.error("Failed to clear global commands", { error: globalError.message });
+      }
+      
+      // SEGUNDO: Para cada servidor, deletar e registrar comandos localmente
       for (const guild of this.client.guilds.cache.values()) {
         try {
-          discordLogger.info(`Processing guild: ${guild.name} (${guild.id})`);
+          discordLogger.info(`🔄 Processing guild: ${guild.name} (${guild.id})`);
           
           // Deletar comandos existentes no servidor
           try {
@@ -161,45 +178,57 @@ class DiscordBot {
             );
             
             if (Array.isArray(existingCommands) && existingCommands.length > 0) {
-              discordLogger.info(`Deleting ${existingCommands.length} commands from guild ${guild.name}...`);
+              discordLogger.warn(`🗑️ Deleting ${existingCommands.length} existing commands from guild ${guild.name}`);
               await rest.put(
                 Routes.applicationGuildCommands(this.client.user!.id, guild.id),
                 { body: [] }
               );
-              discordLogger.success(`Commands deleted from guild ${guild.name}`);
+              discordLogger.success(`✅ Commands deleted from guild ${guild.name}`);
+              
+              // Esperar 2 segundos para garantir que o Discord processe
+              await new Promise(resolve => setTimeout(resolve, 2000));
             }
           } catch (deleteError: any) {
             discordLogger.warn(`Could not delete commands from guild ${guild.name}`, { error: deleteError.message });
           }
           
           // Registrar novos comandos no servidor
+          discordLogger.info(`📝 Registering new commands for guild ${guild.name}...`);
           await rest.put(
             Routes.applicationGuildCommands(this.client.user!.id, guild.id),
             { body: commands.map(cmd => cmd.toJSON()) }
           );
-          discordLogger.success(`Commands registered for guild ${guild.name}`);
+          discordLogger.success(`✅ Commands registered for guild ${guild.name}`);
           
-          // Pequeno delay para evitar rate limits
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          // Esperar para evitar rate limits
+          await new Promise(resolve => setTimeout(resolve, 1500));
           
         } catch (guildError: any) {
-          discordLogger.error(`Failed to register commands for guild ${guild.name}`, { error: guildError.message });
+          discordLogger.error(`❌ Failed to register commands for guild ${guild.name}`, { error: guildError.message });
         }
       }
       
-      // Também deletar comandos globais se existirem
-      try {
-        await rest.put(
-          Routes.applicationCommands(this.client.user!.id),
-          { body: [] }
-        );
-        discordLogger.success("Global commands cleared");
-      } catch (globalError: any) {
-        discordLogger.warn("Could not clear global commands", { error: globalError.message });
+      // TERCEIRO: Verificar se os comandos foram registrados corretamente
+      for (const guild of this.client.guilds.cache.values()) {
+        try {
+          const registeredCommands = await rest.get(
+            Routes.applicationGuildCommands(this.client.user!.id, guild.id)
+          );
+          
+          if (Array.isArray(registeredCommands)) {
+            discordLogger.info(`🔍 Guild ${guild.name} has ${registeredCommands.length} commands:`, 
+              registeredCommands.map(cmd => ({ name: cmd.name, id: cmd.id }))
+            );
+          }
+        } catch (verifyError: any) {
+          discordLogger.warn(`Could not verify commands for guild ${guild.name}`, { error: verifyError.message });
+        }
       }
       
+      discordLogger.success("🎉 Command registration process completed!");
+      
     } catch (error: any) {
-      discordLogger.error("Failed to register commands", { error: error.message });
+      discordLogger.error("💥 Critical error in command registration", { error: error.message });
     }
   }
 
