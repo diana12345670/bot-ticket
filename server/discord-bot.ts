@@ -29,7 +29,7 @@ import {
 } from "discord.js";
 import { storage } from "./storage";
 import OpenAI from "openai";
-import { discordLogger, aiLogger } from "./logger";
+import { discordLogger, aiLogger, panelLogger, ticketLogger, commandLogger, serverLogger } from "./logger";
 
 let openai: OpenAI | null = null;
 if (process.env.OPENAI_API_KEY) {
@@ -95,10 +95,22 @@ class DiscordBot {
 
   private setupEventHandlers() {
     this.client.once("ready", async () => {
-      discordLogger.success(`Logged in as ${this.client.user?.tag}`);
+      serverLogger.startup("Discord Bot", {
+        bot: this.client.user?.tag,
+        id: this.client.user?.id,
+        guilds: this.client.guilds.cache.size,
+        channels: this.client.channels.cache.size,
+        users: this.client.users.cache.size
+      });
+      
       this.isReady = true;
       await this.registerCommands();
       await this.syncGuilds();
+      
+      discordLogger.success("Bot initialization completed", {
+        commandsRegistered: commands.length,
+        guildsSynced: this.client.guilds.cache.size
+      });
     });
 
     this.client.on("guildCreate", async (guild) => {
@@ -473,6 +485,11 @@ class DiscordBot {
     const guild = interaction.guild;
     if (!guild) return;
 
+    commandLogger.interaction("slash", interaction.user.tag, "used /painel-ticket", {
+      channel: interaction.options.getChannel("canal")?.name || interaction.channel?.name,
+      guild: guild.name
+    });
+
     // Usar o canal especificado ou o canal atual
     let channel = interaction.options.getChannel("canal");
     if (!channel) {
@@ -491,6 +508,12 @@ class DiscordBot {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     try {
+      panelLogger.info("Creating new ticket panel", {
+        guild: guild.name,
+        channel: channel.name,
+        user: interaction.user.tag
+      });
+
       // Criar configuração do painel
       const panel = await storage.createPanel({
         guildId: guild.id,
@@ -501,6 +524,12 @@ class DiscordBot {
         welcomeMessage: "Bem-vindo ao suporte! Um membro da equipe irá atendê-lo em breve.",
         requireReason: false,
         isConfigured: false,
+      });
+
+      panelLogger.success("Panel configuration created", {
+        panelId: panel.id,
+        channelId: channel.id,
+        title: panel.title
       });
 
       // Enviar o painel de configuração com menu de seleção
@@ -582,8 +611,18 @@ class DiscordBot {
       const configRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(configMenu);
 
       await interaction.editReply({ embeds: [configEmbed], components: [configRow] });
+      
+      panelLogger.success("Configuration menu sent", {
+        panelId: panel.id,
+        user: interaction.user.tag,
+        channel: channel.name
+      });
     } catch (error: any) {
-      discordLogger.error("Error in handlePanelCommand", { error: error.message });
+      panelLogger.error("Failed to create panel", {
+        error: error.message,
+        user: interaction.user.tag,
+        guild: guild.name
+      });
       await interaction.editReply({ content: "Erro ao criar painel de tickets." });
     }
   }
@@ -947,8 +986,18 @@ class DiscordBot {
     // Evitar duplicação - verificar se já existe ticket sendo criado
     if (interaction.message?.interaction?.id === interaction.id) return;
 
+    ticketLogger.info("Ticket creation requested", {
+      user: interaction.user.tag,
+      guild: guild.name,
+      channel: interaction.channel?.name
+    });
+
     const guildConfig = await storage.getGuildConfig(guild.id);
     if (!guildConfig) {
+      ticketLogger.error("Guild config not found", {
+        user: interaction.user.tag,
+        guildId: guild.id
+      });
       await interaction.reply({
         content: "Configuração do servidor não encontrada.",
         flags: MessageFlags.Ephemeral,
@@ -960,6 +1009,11 @@ class DiscordBot {
     const openTicket = existingTickets.find(t => t.status === "open" || t.status === "waiting");
     
     if (openTicket) {
+      ticketLogger.warn("User already has open ticket", {
+        user: interaction.user.tag,
+        existingTicket: openTicket.channelId,
+        ticketNumber: openTicket.ticketNumber
+      });
       await interaction.reply({
         content: `Você já possui um ticket aberto: <#${openTicket.channelId}>`,
         flags: MessageFlags.Ephemeral,
